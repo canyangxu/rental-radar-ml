@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+# Secrets
+.env
+*.json.key
+gcp-key*.json
+# Data and model artifacts live in GCS / MLflow, not git
+data/
+artifacts/
+mlruns/
+mlartifacts/
+*.parquet
+*.duckdb
+# OS
+.DS_Store
