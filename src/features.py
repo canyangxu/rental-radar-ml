@@ -43,6 +43,13 @@ LABELS = {
     "c12_per10u": "complaints per 10 units, past year", "c3_per10u": "complaints per 10 units, past 3 months",
     "vbc12_per10u": "B/C violations per 10 units, past year",
 }
+_TOPIC = {"noise": "noise", "heat": "heat", "street": "street noise", "upkeep": "repair", "mold": "mold or leak",
+          "pests": "pest", "sanitation": "sanitation"}
+for _k, _t in _TOPIC.items():  # every 3-month complaint column gets a readable name too
+    LABELS.setdefault(f"c3_{_k}", f"{_t} complaints, past 3 months")
+LABELS.setdefault("v3_ri", "rent-impairing violations, past 3 months")
+for _b in BOROUGHS:
+    LABELS.setdefault("boro_" + _b.lower().replace(" ", "_"), f"being in {_b.title()}")
 
 
 def count_columns(df: pd.DataFrame) -> list[str]:
