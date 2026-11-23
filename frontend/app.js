@@ -13,10 +13,11 @@
   $("#apiUrl").textContent = `${API}/predict`;
 
   // ---------- API calls ----------
-  let slowTimer;
+  // Each request owns its own "waking up" notice and only removes that notice, never someone else's message.
+  const WAKING = "Waking up the model server. The first request after a quiet spell can take about 20 seconds.";
   async function call(path, opts = {}) {
-    clearTimeout(slowTimer);
-    slowTimer = setTimeout(() => setStatus("Waking up the model server. The first request after a quiet spell can take about 20 seconds."), 2500);
+    let shown = false;
+    const slow = setTimeout(() => { if (!$("#status").textContent) { setStatus(WAKING); shown = true; } }, 2500);
     const ctrl = new AbortController();
     const kill = setTimeout(() => ctrl.abort(), 60000);
     try {
@@ -32,7 +33,8 @@
       throw e;
     } finally {
       clearTimeout(kill);
-      clearTimeout(slowTimer);
+      clearTimeout(slow);
+      if (shown && $("#status").textContent === WAKING) setStatus("");
     }
   }
   function setStatus(msg, err = false) {
@@ -48,7 +50,7 @@
     if (q.trim().length < 2) return hideList();
     try {
       const { body } = await call(`/buildings/search?q=${encodeURIComponent(q)}&limit=8`);
-      setStatus("");
+      if ($("#status").classList.contains("err")) setStatus("");  // a new successful search clears an old error
       items = body.results || [];
       renderList(q);
       return items;
@@ -119,7 +121,7 @@
       renderBuilding(b.building);
       lastReq = b.features;
       const { body: p, ms } = await call("/predict", { method: "POST", body: JSON.stringify(b.features) });
-      setStatus("");
+      setStatus("");  // removes "Asking the model…", which this function set
       renderForecast(p, b.building);
       renderApi(b.features, p, ms);
       history.replaceState(null, "", `#b${bid}`);
@@ -240,7 +242,6 @@
   async function loadModel() {
     try {
       const { body: m } = await call("/model");
-      setStatus("");
       const t = m.test_metrics, rule = m.baselines.baseline_bc_last_year, no = m.baselines.baseline_always_no;
       const rows = [["Always say no", no.pr_auc], ["Had a B/C violation last year", rule.pr_auc], [`Our model (${m.model_type === "xgboost" ? "XGBoost" : "logistic regression"})`, t.pr_auc, true]];
       $("#bars").innerHTML = rows.map(([l, v, me]) => `<div class="bar${me ? " me" : ""}"><div class="lab"><span>${esc(l)}</span><b>${v.toFixed(3)}</b></div><div class="tr"><div class="fill" data-w="${v * 100}"></div></div></div>`).join("");

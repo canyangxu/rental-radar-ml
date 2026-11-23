@@ -75,6 +75,9 @@ All data is public, from [NYC Open Data](https://opendata.cityofnewyork.us/). Th
 - Street names are normalized (`W 57TH ST` → `WEST 57 STREET`) so 311 addresses join to HPD buildings.
 - Only active buildings with at least 3 legal units are kept.
 - Violations are de-duplicated by ID, and repeated bedbug filings keep the latest one.
+- Impossible values are treated as data-entry errors:
+  - bedbug counts are capped at the building's unit count (one 4-unit building reported 414,754 infested units);
+  - stories outside 1–200 and buildings-per-lot outside 1–500 become missing and are imputed later.
 
 **Data checks** (`data_prep/make_dataset.py`) stop the build if any of these fail:
 - a label window extends past the end of the data;
@@ -109,10 +112,10 @@ The decision threshold maximizes F1 on **validation**. The served model is the o
 |---|---|---|---|---|---|---|---|
 | Always no | 0.140 | 0.500 | 0.000 | 0.000 | 0.000 | 0.140 | 0.860 |
 | B/C last year (rule) | 0.622 | 0.836 | 0.536 | 0.737 | 0.620 | 0.716 | 0.874 |
-| Logistic regression | 0.728 | 0.913 | 0.640 | 0.692 | 0.665 | 0.763 | 0.902 |
-| **XGBoost** | **0.744** | **0.922** | **0.644** | 0.708 | **0.675** | **0.773** | **0.904** |
+| Logistic regression | 0.728 | 0.913 | 0.640 | 0.693 | 0.665 | 0.763 | 0.902 |
+| **XGBoost** | **0.745** | **0.922** | **0.644** | 0.708 | **0.674** | **0.774** | **0.904** |
 
-Against the "last year" rule, XGBoost finds almost the same number of real cases: 16,185 against 16,850. It raises **5,663 fewer false alarms**: 8,945 against 14,608.
+Against the "last year" rule, XGBoost finds almost the same number of real cases: 16,178 against 16,850. It raises **5,673 fewer false alarms**: 8,935 against 14,608.
 
 | Confusion matrix, XGBoost (threshold 0.32) | Precision-recall curves |
 |---|---|
@@ -122,18 +125,18 @@ Against the "last year" rule, XGBoost finds almost the same number of real cases
 
 | Predicted band | Buildings | Mean predicted | Observed rate |
 |---|---|---|---|
-| 0–10% | 118,174 | 2.9% | 2.5% |
-| 20–30% | 6,331 | 24.7% | 24.8% |
-| 50–60% | 3,446 | 54.9% | 53.2% |
-| 90–100% | 4,602 | 95.8% | 95.6% |
+| 0–10% | 118,230 | 2.9% | 2.5% |
+| 20–30% | 6,316 | 24.7% | 24.6% |
+| 50–60% | 3,445 | 54.9% | 53.4% |
+| 90–100% | 4,610 | 95.8% | 95.5% |
 
-The front end can therefore say: "Of the 6,331 buildings scored 20–30%, 25% really got a B/C violation."
+The front end can therefore say: "Of the 6,316 buildings scored 20–30%, 25% really got a B/C violation."
 
 **Explanations.** For XGBoost the API returns per-building SHAP contributions (`pred_contribs`) and lists the strongest drivers with their values. Coordinates and borough are reported together as "location". By total gain, the most important features are B/C violations per 10 units, class B violations in the past year, 311 complaints in the past year, and class C violations (see [`reports/figures/importance_xgboost.png`](reports/figures/importance_xgboost.png)).
 
 ### Experiment tracking (MLflow)
 
-Every `python -m src.train` creates one parent run with five nested runs: two baselines, two models and the selected model. MLflow uses a SQLite backend in `mlruns/mlflow.db`, with artifacts in `mlruns/`. It records:
+Every `python -m src.train` creates one parent run with four nested runs: two baselines and two models. The selected model is logged and registered from the parent run. MLflow uses a SQLite backend in `mlruns/mlflow.db`, with artifacts in `mlruns/`. It records:
 
 | What | Where |
 |---|---|
@@ -146,7 +149,7 @@ Every `python -m src.train` creates one parent run with five nested runs: two ba
 ```bash
 mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db   # http://localhost:5000
 ```
-![MLflow runs](docs/img/mlflow-runs.png)
+![MLflow parent run: four child runs (two baselines, two models), the three datasets, tags with the git SHA and data hash, and the registered model](docs/img/mlflow-run.png)
 
 ## 4. Cloud services
 
@@ -181,7 +184,7 @@ Requirements: Python 3.12 and Docker. Cloud steps also need the [gcloud CLI](htt
 git clone https://github.com/canyangxu/rental-radar-ml.git && cd rental-radar-ml
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt          # pinned versions
-pytest -q                                 # 29 tests, runs offline on synthetic data
+pytest -q                                 # 30 tests; all but one run offline on synthetic data
 ```
 
 Every parameter is in [`config.yaml`](config.yaml): data sources and dates, feature windows, target, split cutoffs, model hyperparameters, evaluation, MLflow and serving. Three environment variables override per-machine values:
@@ -223,7 +226,7 @@ One image, two entry points: `serve` (the default) and `train`, plus `test`.
 docker build -t rental-radar-ml .
 docker run --rm -p 8080:8080 rental-radar-ml                 # serve: FastAPI on :8080
 docker run --rm rental-radar-ml test                         # run the test suite in the container
-docker run --rm -e GCS_BUCKET=<bucket> \
+docker run --rm -e GCS_BUCKET=<bucket> -e GOOGLE_CLOUD_PROJECT=<project> \
   -v ~/.config/gcloud/application_default_credentials.json:/creds.json:ro -e GOOGLE_APPLICATION_CREDENTIALS=/creds.json \
   -v "$PWD/artifacts:/app/artifacts" -v "$PWD/mlruns:/app/mlruns" -v "$PWD/reports:/app/reports" \
   rental-radar-ml train                                      # train: full pipeline inside the container
@@ -241,10 +244,10 @@ curl -X POST http://localhost:8080/predict -H "Content-Type: application/json" \
        "c12_all":34,"c12_noise":13,"c12_mold":6,"c12_pests":5,"c3_all":5,"v12_a":1,"v12_b":1,"bb24_infested":1}'
 ```
 ```json
-{"probability":0.2694,"label":0,"risk_level":"medium","percentile":0.825,"threshold":0.32,"base_rate":0.1464,
- "backtest_band":{"low":0.2,"high":0.3,"n":6331,"mean_predicted":0.2465,"observed_rate":0.2481},
+{"probability":0.288,"label":0,"risk_level":"medium","percentile":0.832,"threshold":0.32,"base_rate":0.1461,
+ "backtest_band":{"low":0.2,"high":0.3,"n":6316,"mean_predicted":0.2465,"observed_rate":0.2459},
  "drivers":[{"feature":"c12_all","label":"311 complaints, past year","value":34.0,"effect":"raises","contribution":0.62}, "..."],
- "model_version":"20261123-084352-38f1eb0"}
+ "model_version":"20261123-090059-273edef"}
 ```
 
 | Endpoint | Description |
@@ -314,7 +317,7 @@ src/
 api/                     FastAPI app (main.py) and request/response schemas (schemas.py)
 frontend/                static web front end (Hugging Face Space)
 scripts/                 setup_gcs.sh, deploy_cloudrun.sh, deploy_frontend_hf.sh, smoke_test.sh, entrypoint.sh
-tests/                   29 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
+tests/                   30 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
 reports/                 test metrics (metrics.json) and figures from the latest run
 docs/img/                screenshots
 ```
@@ -337,13 +340,14 @@ The page says plainly that this is "a forecast, not an inspection".
 **Size bias.** Large buildings get more complaints simply because more people live there. Per-unit rates reduce this, but the number of units is still a strong feature. A small building with one serious violation can score lower than it should.
 
 **Errors have costs.**
-- At the chosen threshold the model misses 29% of the buildings that did get a B/C violation: 6,676 false negatives.
-- 36% of its alerts are false alarms: 8,945.
+- At the chosen threshold the model misses 29% of the buildings that did get a B/C violation: 6,683 false negatives.
+- 36% of its alerts are false alarms: 8,935.
 
 The page shows the probability and the calibration band instead of a yes/no verdict, and pairs every forecast with a concrete question to verify in person.
 
 **Time and drift.**
 - The data is frozen on 2026-11-14.
+- The test label window ends on 2026-10-31, two weeks before that. Violations from late October that HPD had not yet posted count as negatives, so test results may be slightly pessimistic.
 - Test results come from one six-month window.
 - HPD enforcement priorities, inspection staffing and seasons (heat violations peak in winter) shift the base rate.
 

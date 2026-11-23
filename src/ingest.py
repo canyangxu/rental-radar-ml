@@ -27,7 +27,8 @@ def sha256(p: Path) -> str:
 def _client():
     from google.cloud import storage  # imported here so the API container does not need GCS credentials
 
-    return storage.Client()
+    # GOOGLE_CLOUD_PROJECT is needed when the credentials do not carry a project (e.g. inside Docker)
+    return storage.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"))
 
 
 def download_dataset(cfg: dict | None = None, client=None) -> Path:
