@@ -1,0 +1,62 @@
+# Every pipeline parameter lives here. Scripts read this file; nothing is hard-coded.
+project:
+  name: rental-radar-ml
+  seed: 42
+
+data:
+  # NYC Open Data (Socrata) datasets used to build the training table
+  sources:
+    buildings: kj4p-ruqc        # HPD Buildings
+    violations: wvxf-dwi5       # HPD Housing Maintenance Code Violations
+    complaints: erm2-nwe9       # 311 Service Requests (housing + noise)
+    bedbugs: wz6d-d3jb          # HPD Bedbug Reporting
+  start_date: "2024-01-01"
+  min_units: 3                  # keep residential buildings with 3+ units
+  local_dir: data
+  gcs:
+    bucket: rental-radar-ml-data   # set to your bucket name
+    prefix: v1
+
+features:
+  lookback_months: [3, 12]      # complaint / violation counts over these windows
+  bedbug_lookback_months: 24
+  complaint_categories: [noise, heat, street, upkeep, mold, pests, sanitation]
+
+target:
+  # y = 1 if the building receives at least one class B or C HPD violation
+  # in the horizon after the cutoff date
+  violation_classes: [B, C]
+  horizon_months: 6
+
+split:
+  # time-based split: each set is a snapshot of all buildings at a cutoff date.
+  # Features use only data before the cutoff; labels use only the horizon after it.
+  train_cutoff: "2025-05-01"
+  val_cutoff: "2025-11-01"
+  test_cutoff: "2026-05-01"
+
+models:
+  logistic_regression:
+    C: 1.0
+    max_iter: 2000
+  xgboost:
+    n_estimators: 400
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 30
+
+evaluation:
+  primary_metric: pr_auc        # positives are ~14%, so accuracy is not used
+  threshold_metric: f1          # decision threshold picked on validation only
+  top_k_fraction: 0.10
+
+mlflow:
+  tracking_uri: mlruns
+  experiment: violation-risk
+
+serving:
+  model_dir: artifacts/model
+  host: 0.0.0.0
+  port: 8080
