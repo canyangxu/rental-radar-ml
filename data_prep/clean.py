@@ -12,7 +12,9 @@ Cleaning rules (all in SQL below):
   * text dates are parsed with TRY_CAST; rows whose date cannot be parsed are dropped from the event tables
   * street names are normalized ("W 57TH ST" -> "WEST 57 STREET") so 311 addresses can be joined to HPD buildings
   * only active buildings with at least data.min_units legal units are kept
-  * duplicate bedbug filings for the same period keep the latest filing
+  * duplicate bedbug filings for the same period keep the latest filing; infested counts are capped at the
+    building's unit count (a few filings report impossible numbers)
+  * stories outside 1-200 and buildings-per-lot outside 1-500 are data-entry errors and become NULL (imputed later)
   * 311 complaints that do not match a building keep a NULL building id and are excluded from features
 
 Usage: python -m data_prep.clean
@@ -107,8 +109,10 @@ def main() -> dict:
     SELECT CAST(b.buildingid AS BIGINT) AS bid,
            upper(b.boro) AS borough, b.housenumber AS house, norm_street(b.streetname) AS street, b.zip,
            TRY_CAST(b.legalclassa AS INT) + coalesce(TRY_CAST(b.legalclassb AS INT), 0) AS units,
-           TRY_CAST(b.legalstories AS INT) AS stories, b.managementprogram AS program,
-           CASE WHEN p.year_built > 1700 THEN p.year_built END AS year_built, p.bldgs_lot,
+           CASE WHEN TRY_CAST(b.legalstories AS INT) BETWEEN 1 AND 200 THEN TRY_CAST(b.legalstories AS INT) END AS stories,
+           b.managementprogram AS program,
+           CASE WHEN p.year_built > 1700 THEN p.year_built END AS year_built,
+           CASE WHEN p.bldgs_lot BETWEEN 1 AND 500 THEN p.bldgs_lot END AS bldgs_lot,
            coalesce(c.lat, p.lat) AS lat, coalesce(c.lng, p.lng) AS lng,
            m.management IS NOT NULL AS has_mgmt
     FROM {raw('buildings')} b
@@ -132,14 +136,16 @@ def main() -> dict:
     print("bedbugs ...", flush=True)
     con.execute(f"""
     CREATE TABLE bedbugs AS
-    SELECT bid, infested, reinfested, filed FROM (
+    -- a filing cannot report more infested units than the building has (some filings carry typos like 414,754)
+    SELECT f.bid, least(f.infested, b.units) AS infested, least(f.reinfested, b.units) AS reinfested, f.filed FROM (
       SELECT CAST(building_id AS BIGINT) AS bid,
              coalesce(TRY_CAST(infested_dwelling_unit_count AS INT), 0) infested,
              coalesce(TRY_CAST(re_infested_dwelling_unit AS INT), 0) reinfested,
              CAST(TRY_CAST(filing_date AS TIMESTAMP) AS DATE) filed,
              row_number() OVER (PARTITION BY building_id, filling_period_end_date ORDER BY TRY_CAST(filing_date AS TIMESTAMP) DESC) rn
-      FROM {raw('bedbugs')} WHERE TRY_CAST(building_id AS BIGINT) IS NOT NULL)
-    WHERE rn = 1 AND filed IS NOT NULL AND bid IN (SELECT bid FROM buildings)""")
+      FROM {raw('bedbugs')} WHERE TRY_CAST(building_id AS BIGINT) IS NOT NULL) f
+    JOIN buildings b USING (bid)
+    WHERE f.rn = 1 AND f.filed IS NOT NULL""")
 
     print("complaints ...", flush=True)
     con.execute(f"""

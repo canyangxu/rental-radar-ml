@@ -101,3 +101,21 @@ def test_model_info_and_cors(client):
     assert {"test_metrics", "baselines", "threshold", "version"} <= set(m)
     r = client.options("/predict", headers={"Origin": "https://example.hf.space", "Access-Control-Request-Method": "POST"})
     assert r.headers.get("access-control-allow-origin") in ("*", "https://example.hf.space")
+
+
+@pytest.mark.skipif(not (ROOT / "artifacts/model/live.parquet").exists(), reason="needs a trained model bundle")
+def test_every_live_building_passes_request_validation():
+    """What GET /buildings/{id} returns must be accepted by POST /predict, for every building we serve."""
+    from api.main import _py
+    from api.schemas import BuildingFeatures
+    live = pd.read_parquet(ROOT / "artifacts/model/live.parquet")
+    fields = set(BuildingFeatures.model_fields)
+    bad = []
+    for row in live.to_dict("records"):
+        feats = {k: _py(v) for k, v in row.items() if k in fields}
+        feats["cutoff"] = str(row["cutoff"])[:10]
+        try:
+            BuildingFeatures(**feats)
+        except Exception:
+            bad.append(row["bid"])
+    assert bad == [], f"{len(bad)} buildings would get 422, e.g. {bad[:5]}"

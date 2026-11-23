@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 from google.cloud import storage
 
@@ -40,7 +41,7 @@ def main() -> None:
     manifest["sha256"] = {f: sha256(src / f) for f in data_files}
     manifest_path.write_text(json.dumps(manifest, indent=2))
 
-    bucket = storage.Client().bucket(g["bucket"])
+    bucket = storage.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT")).bucket(g["bucket"])
     for f in data_files + ["manifest.json"]:  # manifest last: it only appears once the data is in place
         blob = bucket.blob(f"{g['prefix']}/{f}")
         blob.upload_from_filename(str(src / f))

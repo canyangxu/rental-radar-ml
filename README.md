@@ -75,6 +75,9 @@ All data is public, from [NYC Open Data](https://opendata.cityofnewyork.us/). Th
 - Street names are normalized (`W 57TH ST` → `WEST 57 STREET`) so 311 addresses join to HPD buildings.
 - Only active buildings with at least 3 legal units are kept.
 - Violations are de-duplicated by ID, and repeated bedbug filings keep the latest one.
+- Impossible values are treated as data-entry errors:
+  - bedbug counts are capped at the building's unit count (one 4-unit building reported 414,754 infested units);
+  - stories outside 1–200 and buildings-per-lot outside 1–500 become missing and are imputed later.
 
 **Data checks** (`data_prep/make_dataset.py`) stop the build if any of these fail:
 - a label window extends past the end of the data;
@@ -133,7 +136,7 @@ The front end can therefore say: "Of the 6,331 buildings scored 20–30%, 25% re
 
 ### Experiment tracking (MLflow)
 
-Every `python -m src.train` creates one parent run with five nested runs: two baselines, two models and the selected model. MLflow uses a SQLite backend in `mlruns/mlflow.db`, with artifacts in `mlruns/`. It records:
+Every `python -m src.train` creates one parent run with four nested runs: two baselines and two models. The selected model is logged and registered from the parent run. MLflow uses a SQLite backend in `mlruns/mlflow.db`, with artifacts in `mlruns/`. It records:
 
 | What | Where |
 |---|---|
@@ -223,7 +226,7 @@ One image, two entry points: `serve` (the default) and `train`, plus `test`.
 docker build -t rental-radar-ml .
 docker run --rm -p 8080:8080 rental-radar-ml                 # serve: FastAPI on :8080
 docker run --rm rental-radar-ml test                         # run the test suite in the container
-docker run --rm -e GCS_BUCKET=<bucket> \
+docker run --rm -e GCS_BUCKET=<bucket> -e GOOGLE_CLOUD_PROJECT=<project> \
   -v ~/.config/gcloud/application_default_credentials.json:/creds.json:ro -e GOOGLE_APPLICATION_CREDENTIALS=/creds.json \
   -v "$PWD/artifacts:/app/artifacts" -v "$PWD/mlruns:/app/mlruns" -v "$PWD/reports:/app/reports" \
   rental-radar-ml train                                      # train: full pipeline inside the container
@@ -344,6 +347,7 @@ The page shows the probability and the calibration band instead of a yes/no verd
 
 **Time and drift.**
 - The data is frozen on 2026-11-14.
+- The test label window ends on 2026-10-31, two weeks before that. Violations from late October that HPD had not yet posted count as negatives, so test results may be slightly pessimistic.
 - Test results come from one six-month window.
 - HPD enforcement priorities, inspection staffing and seasons (heat violations peak in winter) shift the base rate.
 

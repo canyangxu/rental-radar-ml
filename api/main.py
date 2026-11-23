@@ -137,7 +137,7 @@ def building(bid: int):
     fields = set(BuildingFeatures.model_fields)
     features = {k: _py(v) for k, v in row.items() if k in fields}
     features["cutoff"] = str(row["cutoff"])[:10]
-    info = b[b.bid == bid].drop(columns=["_addr", "_name"], errors="ignore")
+    info = b[b.bid == bid].drop(columns=["_addr", "_name"], errors="ignore") if "bid" in b else pd.DataFrame()
     info = _clean(info).to_dict("records")[0] if len(info) else {"bid": bid}
     return {"building": info, "features": features}
 

@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Count = Field(default=0, ge=0, le=100_000)
+Count = Field(default=0, ge=0, le=1_000_000)
 
 
 class BuildingFeatures(BaseModel):

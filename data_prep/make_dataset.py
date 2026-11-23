@@ -64,23 +64,33 @@ def snapshot_sql(cfg: dict, cutoff: str, with_label: bool) -> str:
     """
 
 
+class DataCheckError(ValueError):
+    pass
+
+
+def _require(ok: bool, message: str) -> None:
+    """A real exception, not assert: the checks must still run under python -O."""
+    if not ok:
+        raise DataCheckError(message)
+
+
 def check(con: duckdb.DuckDBPyConnection, cfg: dict) -> dict:
     """Data checks. Any failure stops the script, so a broken dataset never reaches GCS."""
     s, d = cfg["split"], cfg["data"]
     end = date.fromisoformat(d["end_date"])
     for name in ("train", "val", "test"):
         label_end = date.fromisoformat(s[f"{name}_cutoff"]) + relativedelta(months=cfg["target"]["horizon_months"])
-        assert label_end <= end, f"{name} label window ends {label_end}, after the data ends {end}"
+        _require(label_end <= end, f"{name} label window ends {label_end}, after the data ends {end}")
         first = date.fromisoformat(s[f"{name}_cutoff"]) - relativedelta(months=max(cfg["features"]["lookback_months"]))
-        assert first >= date.fromisoformat(d["start_date"]), f"{name} look-back starts {first}, before the data starts"
+        _require(first >= date.fromisoformat(d["start_date"]), f"{name} look-back starts {first}, before the data starts")
     n_b = con.execute("SELECT count(*) FROM buildings").fetchone()[0]
     per_cut = con.execute("SELECT cutoff, count(*), count(DISTINCT bid), avg(y) FROM snaps GROUP BY 1 ORDER BY 1").fetchall()
     for cutoff, n, n_distinct, _ in per_cut:
-        assert n == n_distinct == n_b, f"{cutoff}: {n} rows for {n_b} buildings (duplicates or missing rows)"
+        _require(n == n_distinct == n_b, f"{cutoff}: {n} rows for {n_b} buildings (duplicates or missing rows)")
     nulls = con.execute("SELECT count(*) FROM snaps WHERE y IS NULL OR y_count IS NULL").fetchone()[0]
-    assert nulls == 0, "labels contain NULLs"
+    _require(nulls == 0, "labels contain NULLs")
     neg = con.execute("SELECT count(*) FROM snaps WHERE c12_all < 0 OR v12_b < 0").fetchone()[0]
-    assert neg == 0, "negative counts"
+    _require(neg == 0, "negative counts")
     return {
         "buildings": n_b,
         "rows_per_cutoff": {str(c): n for c, n, _, _ in per_cut},
