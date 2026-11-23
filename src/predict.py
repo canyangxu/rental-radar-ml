@@ -17,7 +17,9 @@ import pandas as pd
 
 from src.features import LABELS
 
-GROUPS = {"lat": "location", "lng": "location"}  # shown to people as one driver
+# shown to people as one driver: where the building is
+GROUPS = {"lat": "location", "lng": "location", "boro_bronx": "location", "boro_brooklyn": "location",
+          "boro_manhattan": "location", "boro_queens": "location", "boro_staten_island": "location"}
 
 
 class Predictor:

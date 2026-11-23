@@ -110,3 +110,10 @@ def test_training_pipeline_end_to_end(tmp_path, monkeypatch):
     low, high = pred.predict([{"v12_b": 0, "c12_all": 0}, {"v12_b": 8, "v12_c": 4, "c12_all": 30}])
     assert 0 <= low["probability"] < high["probability"] <= 1
     assert high["drivers"] and {"feature", "label", "effect", "contribution"} <= set(high["drivers"][0])
+
+
+def test_every_feature_has_a_readable_label():
+    from src.features import LABELS
+    df = synthetic(20)
+    names = FeatureBuilder().fit(df).feature_names_
+    assert [n for n in names if n not in LABELS] == []
