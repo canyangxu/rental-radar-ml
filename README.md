@@ -8,9 +8,10 @@ Duke AIPI 510 · Module Project 3: Data/ML Engineering
 
 | | Link |
 |---|---|
-| **Front end** (Hugging Face Spaces) | FRONTEND_URL |
-| **API** (Cloud Run) | API_URL · interactive docs at API_URL/docs |
-| **Predict endpoint** | `POST API_URL/predict` |
+| **Front end** (Hugging Face Spaces) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** |
+| **API** (Cloud Run) | **https://rental-radar-ml-api-976733016944.us-east1.run.app** · interactive docs at [https://rental-radar-ml-api-976733016944.us-east1.run.app/docs](https://rental-radar-ml-api-976733016944.us-east1.run.app/docs) |
+| **Predict endpoint** | `POST https://rental-radar-ml-api-976733016944.us-east1.run.app/predict` |
+| **Dataset in the cloud** (GCS) | `gs://rental-radar-ml-7631fd34/v1/` (Google Cloud Storage, project `project-7631fd34-7bbc-4858-b2d`) |
 
 ![Front end: forecast for The Max](docs/img/frontend-forecast.png)
 
@@ -155,9 +156,9 @@ mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db   # http://localhost:50
 
 | Service | Role |
 |---|---|
-| **Google Cloud Storage** | Holds the cleaned, processed dataset under `gs://<bucket>/v1/`: `snapshots.parquet`, `live.parquet`, `buildings.parquet` and `manifest.json` with SHA-256 hashes. The training pipeline downloads from here and verifies every file. |
+| **Google Cloud Storage** | Holds the cleaned, processed dataset under `gs://rental-radar-ml-7631fd34/v1/` (region us-east1): `snapshots.parquet`, `live.parquet`, `buildings.parquet` and `manifest.json` with SHA-256 hashes. The training pipeline downloads from here and verifies every file. |
 | **Cloud Build + Artifact Registry** | Build the Docker image from this repo (`gcloud run deploy --source .`). |
-| **Cloud Run** | Runs the API container: public (no auth), 2 GiB memory, scales to zero, at most 3 instances. |
+| **Cloud Run** | Runs the API container at https://rental-radar-ml-api-976733016944.us-east1.run.app (service `rental-radar-ml-api`, us-east1): public (no auth), 2 GiB memory, scales to zero, at most 3 instances. |
 | **Hugging Face Spaces** (static) | Hosts the front end, which calls the Cloud Run API from the browser (CORS enabled). |
 
 ```
@@ -165,7 +166,7 @@ mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db   # http://localhost:50
    (Socrata API)            data_prep/download.py  data_prep/clean.py  data_prep/make_dataset.py
                                                                                  │ data_prep/upload.py
                                                                                  ▼
-                                                                  Google Cloud Storage  gs://<bucket>/v1/
+                                                                  Google Cloud Storage  gs://rental-radar-ml-7631fd34/v1/
                                                                                  │ src/ingest.py (SHA-256 checked)
                                                                                  ▼
   config.yaml ──▶  src/features.py → src/split.py → src/train.py → src/evaluate.py ──▶ MLflow (runs, metrics, registry)
@@ -191,7 +192,7 @@ Every parameter is in [`config.yaml`](config.yaml): data sources and dates, feat
 
 | Variable | Overrides | Example |
 |---|---|---|
-| `GCS_BUCKET` | `data.gcs.bucket` | `rental-radar-ml-data` |
+| `GCS_BUCKET` | `data.gcs.bucket` | `rental-radar-ml-7631fd34` |
 | `MLFLOW_TRACKING_URI` | `mlflow.tracking_uri` | `sqlite:///mlruns/mlflow.db` |
 | `MODEL_DIR` | `serving.model_dir` | `artifacts/model` |
 
@@ -273,8 +274,16 @@ This publishes the front end with `API_URL` set.
 
 Verify the deployed endpoint with a plain HTTP request:
 ```bash
-curl -X POST API_URL/predict -H "Content-Type: application/json" -d '{"borough":"BRONX","units":40,"v12_b":6,"v12_c":3,"c12_all":25}'
+curl -X POST https://rental-radar-ml-api-976733016944.us-east1.run.app/predict -H "Content-Type: application/json" -d '{"borough":"BRONX","units":40,"v12_b":6,"v12_c":3,"c12_all":25}'
 ```
+Response from the live service (drivers trimmed):
+```json
+{"probability":0.3032,"label":0,"risk_level":"medium","percentile":0.837,"threshold":0.32,"base_rate":0.1461,
+ "backtest_band":{"low":0.3,"high":0.4,"n":4887,"mean_predicted":0.3477,"observed_rate":0.3427},
+ "drivers":[{"feature":"vbc12_per10u","label":"B/C violations per 10 units, past year","value":2.25,"effect":"raises","contribution":0.8858}, ...],
+ "model_version":"20261123-170838-d806870"}
+```
+`scripts/smoke_test.sh https://rental-radar-ml-api-976733016944.us-east1.run.app` checks every endpoint of the live service, including a 422 for invalid input.
 
 ## 7. Front end
 

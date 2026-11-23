@@ -24,7 +24,7 @@ data:
   processed_dir: data/processed # local, written by data_prep/make_dataset.py, uploaded to GCS
   cache_dir: data/cache         # where src/ingest.py puts the files it downloads from GCS
   gcs:
-    bucket: rental-radar-ml-data   # override with the GCS_BUCKET environment variable
+    bucket: rental-radar-ml-7631fd34   # override with the GCS_BUCKET environment variable
     prefix: v1
     files: [snapshots.parquet, live.parquet, buildings.parquet, manifest.json]
 
