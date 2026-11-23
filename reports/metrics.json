@@ -1,8 +1,8 @@
 {
   "selected_model": "xgboost",
   "selected_by": "val_pr_auc",
-  "version": "20261123-083824-621eca0",
-  "mlflow_run_id": "95a61818546f4183920941c247c48b30",
+  "version": "20261123-084352-38f1eb0",
+  "mlflow_run_id": "15092bcc61c14bb488b8f91c4b93c175",
   "rows": {
     "train": 162997,
     "val": 162997,

@@ -68,7 +68,7 @@ evaluation:
   select_model_by: val_pr_auc   # the served model is chosen on validation, not test
 
 mlflow:
-  tracking_uri: sqlite:///mlflow.db   # runs in mlflow.db, artifacts in mlruns/; override with MLFLOW_TRACKING_URI
+  tracking_uri: sqlite:///mlruns/mlflow.db   # runs and artifacts both under mlruns/; override with MLFLOW_TRACKING_URI
   experiment: violation-risk
   registered_model: violation-risk-classifier
 

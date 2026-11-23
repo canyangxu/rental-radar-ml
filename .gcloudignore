@@ -1,0 +1,14 @@
+# Files Cloud Build does not upload (gcloud run deploy --source .). Same rules as .dockerignore; artifacts/ IS uploaded.
+.git
+.venv
+.pytest_cache
+**/__pycache__
+data/
+mlruns/
+mlflow.db
+frontend/
+reports/
+docs/
+*.md
+.env
+gcp-key*.json
