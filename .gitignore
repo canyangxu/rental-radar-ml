@@ -16,3 +16,5 @@ mlartifacts/
 *.duckdb
 # OS
 .DS_Store
+mlflow.db
+reports/.tmp/
