@@ -59,14 +59,17 @@
       return [];
     }
   }
-  function renderList(q) {
+  function renderList(q, note = "") {
     active = -1;
     if (!items.length) {
-      list.innerHTML = `<li aria-disabled="true"><span class="ad">No NYC building with 3+ units matches “${esc(q)}”. Try the street address.</span></li>`;
+      // Nothing in our own records: offer the OpenStreetMap lookup, but only when the user asks for it.
+      list.innerHTML = `<li class="empty"${note ? ' aria-disabled="true"' : ""}><span class="ad">${note ? esc(note) : `No NYC building with 3+ units matches “${esc(q)}”. Try the street address, or:`}</span>
+        ${note ? "" : `<button type="button" class="btn ghost small lookup" data-q="${esc(q)}">在网上查找这个楼名 / Look up this name online</button>`}</li>`;
     } else {
       list.innerHTML = items.map((b, i) => `<li role="option" id="opt${i}" data-i="${i}" aria-selected="false">
         <div><div class="nm">${esc(b.name ? b.name.split(" / ")[0] : title(b.address))}</div>
-        <div class="ad">${esc(title(b.address))}, ${esc(title(b.borough))} ${esc(b.zip || "")}</div></div>
+        <div class="ad">${esc(title(b.address))}, ${esc(title(b.borough))} ${esc(b.zip || "")}</div>
+        ${b.source ? `<a class="src" href="${esc(b.source_url)}" target="_blank" rel="noopener">via OpenStreetMap · verified in HPD records</a>` : ""}</div>
         <span class="u">${b.units ? fmt(b.units) + " units" : ""}</span></li>`).join("");
     }
     list.hidden = false;
@@ -91,7 +94,23 @@
     else if (e.key === "Escape") hideList();
     else if (e.key === "Enter" && active >= 0 && !list.hidden) { e.preventDefault(); choose(items[active].bid); }
   });
+  // Fallback: ask the API to find the name through OpenStreetMap. One request per click, never per keystroke.
+  async function lookupOnline(q, btn) {
+    btn.disabled = true;
+    btn.textContent = "Looking it up…";
+    try {
+      const { body } = await call(`/buildings/lookup?q=${encodeURIComponent(q)}`);
+      if (input.value !== q) return;  // the user typed something else meanwhile: drop this answer
+      items = body.results || [];
+      renderList(q, body.reason || "OpenStreetMap did not find this name in New York City.");
+    } catch (e) {
+      if (input.value === q) renderList(q, e.message);
+    }
+  }
   list.addEventListener("click", (e) => {
+    if (e.target.closest("a.src")) return;  // the source link opens OpenStreetMap; it does not pick the building
+    const btn = e.target.closest("button.lookup");
+    if (btn) { e.preventDefault(); lookupOnline(btn.dataset.q, btn); return; }
     const li = e.target.closest("li[data-i]");
     if (li) choose(items[+li.dataset.i].bid);
   });
