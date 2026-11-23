@@ -15,6 +15,29 @@ Duke AIPI 510 · Module Project 3: Data/ML Engineering
 
 ![Front end: forecast for The Max](docs/img/frontend-forecast.png)
 
+## Assignment checklist
+
+Every requirement of the assignment, with where to find it. All links point at the live services or at files in this repository.
+
+| Requirement | Where it is | Evidence |
+|---|---|---|
+| Public dataset, supervised task, target and metric | [§1](#1-overview-and-goals), [§2](#2-dataset) | NYC Open Data; binary target "class B/C HPD violation in the next 6 months"; primary metric PR-AUC |
+| Cleaned locally, stored in the cloud | [`data_prep/`](data_prep), [§4](#4-cloud-services) | cleaned with DuckDB, uploaded to **Google Cloud Storage** `gs://rental-radar-ml-7631fd34/v1/` with SHA-256 hashes |
+| Script that downloads the data in the pipeline | [`src/ingest.py`](src/ingest.py) | `python -m src.train` downloads from GCS and verifies every file before training |
+| Simple model | [`src/train.py`](src/train.py), [§3](#3-model-and-evaluation) | two baselines, logistic regression, XGBoost (selected on validation PR-AUC) |
+| Pipeline: ingest, preprocessing and features, split, train, evaluate | [`src/`](src) | `ingest.py` → `features.py` → `split.py` (time-based train/val/test) → `train.py` → `evaluate.py` |
+| `config.yaml` | [`config.yaml`](config.yaml) | data sources, dates, features, target, split, hyperparameters, evaluation, MLflow, serving |
+| Experiment tracking (params, metrics, artifacts) | [§3 MLflow](#experiment-tracking-mlflow) | MLflow parent run + 4 nested runs; params, metrics, datasets, figures, model; registered as `violation-risk-classifier` |
+| Dockerfile with train and serve entry points, built and run locally | [`Dockerfile`](Dockerfile), [`scripts/entrypoint.sh`](scripts/entrypoint.sh), [§6.3](#63-build-and-run-the-docker-image-locally) | `docker run rental-radar-ml` (serve), `... train`, `... test` |
+| FastAPI `/predict` with JSON input, tested with curl | [`api/main.py`](api/main.py), [`scripts/smoke_test.sh`](scripts/smoke_test.sh), [§6.4](#64-test-the-api-locally-with-curl) | `POST /predict` returns probability, label and drivers; invalid input returns 422 |
+| Deployed to the cloud, `/predict` public and verified over HTTP | [§6.5](#65-deploy) | **Cloud Run**: `POST https://rental-radar-ml-api-976733016944.us-east1.run.app/predict` (live response shown in §6.5) |
+| Front end that calls the deployed API, interactive, hosted publicly | [`frontend/`](frontend), [§7](#7-front-end) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** — search → forecast card → model section → the live request it just sent |
+| README sections | this file | overview and goals, dataset, model and evaluation, cloud services, setup, usage (train, build, test the API, deploy), links |
+| `requirements.txt` | [`requirements.txt`](requirements.txt) | pinned versions, Python 3.12 |
+| Tests | [`tests/`](tests) | 30 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
+| Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment |
+| Ethics and limitations | [§9](#9-ethics-and-limitations) | label bias from complaint-driven inspections, neighborhood signal, size bias, error costs, drift |
+
 ---
 
 ## Contents
@@ -248,7 +271,7 @@ curl -X POST http://localhost:8080/predict -H "Content-Type: application/json" \
 {"probability":0.288,"label":0,"risk_level":"medium","percentile":0.832,"threshold":0.32,"base_rate":0.1461,
  "backtest_band":{"low":0.2,"high":0.3,"n":6316,"mean_predicted":0.2465,"observed_rate":0.2459},
  "drivers":[{"feature":"c12_all","label":"311 complaints, past year","value":34.0,"effect":"raises","contribution":0.62}, "..."],
- "model_version":"20261123-090059-273edef"}
+ "model_version":"20261123-170838-d806870"}
 ```
 
 | Endpoint | Description |
@@ -293,7 +316,7 @@ A static page (HTML, CSS and JavaScript, no build step) in [`frontend/`](fronten
 2. **Forecast card.** `GET /buildings/{id}` returns the features, then `POST /predict`:
    - the probability, with a count-up animation;
    - a gauge with the NYC average marked;
-   - a "Top 3% riskiest in NYC" sticker;
+   - a "Top N% riskiest in NYC" sticker from the percentile (The Max: top 17%);
    - the reasons behind the score;
    - one question to ask at the viewing.
 3. **Behind the forecast.** `GET /model` supplies the pipeline steps, PR-AUC against the baselines, the confusion matrix and calibration.
@@ -331,7 +354,7 @@ reports/                 test metrics (metrics.json) and figures from the latest
 docs/img/                screenshots
 ```
 
-Development history: each part landed through its own branch and pull request (skeleton → data → model → API → Docker/Cloud Run → front end → docs).
+Development history: each part landed through its own branch and [pull request](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr): skeleton (#1) → data and GCS (#2) → model and MLflow (#3) → API (#4) → Docker and Cloud Run (#5) → front end (#6) → README (#7) → code-review fixes (#8) → live deployment links (#9) → front-end polish (#10).
 
 ## 9. Ethics and limitations
 
