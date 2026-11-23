@@ -211,7 +211,7 @@
     $("#mouth").setAttribute("d", prob >= p.threshold ? "M105 121 q5 -5 10 0" : prob >= p.base_rate ? "M105 119 h10" : "M105 118 q5 5 10 0");
     const a = Math.PI * p.base_rate, x = 110 - 90 * Math.cos(a), y = 115 - 90 * Math.sin(a);
     $("#avgMark").innerHTML = `<circle cx="${x}" cy="${y}" r="9" fill="#fff" stroke="#1E1B17" stroke-width="3"/>
-      <text x="${x - 6}" y="${y - 18}" text-anchor="end" class="ml">NYC avg</text><text x="${x - 6}" y="${y - 2}" text-anchor="end" class="mv">${pct(p.base_rate)}</text>`;
+      <text x="${x - 16}" y="${y - 14}" text-anchor="end" class="ml">NYC avg</text><text x="${x - 16}" y="${y + 4}" text-anchor="end" class="mv">${pct(p.base_rate)}</text>`;
     $("#gaugeLabel").textContent = `Gauge: ${target}% against a NYC average of ${pct(p.base_rate)}`;
 
     $("#why").innerHTML = p.drivers.slice(0, 5).map(chip).join("");
