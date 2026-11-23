@@ -209,6 +209,10 @@ def main() -> dict:
             shutil.rmtree(model_dir)
         model_dir.mkdir(parents=True)
         joblib.dump(pipe, model_dir / "model.joblib")
+        # serving bundle: the live snapshot the API scores and the building search index
+        for name in ("live.parquet", "buildings.parquet"):
+            if (src_dir / name).exists():
+                shutil.copy(src_dir / name, model_dir / name)
         (model_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
 
         summary = {"selected_model": best, "selected_by": ecfg["select_model_by"], "version": version,
