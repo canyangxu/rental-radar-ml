@@ -5,22 +5,34 @@ project:
 
 data:
   # NYC Open Data (Socrata) datasets used to build the training table
+  socrata_base: https://data.cityofnewyork.us/resource
   sources:
-    buildings: kj4p-ruqc        # HPD Buildings
+    buildings: kj4p-ruqc        # HPD Buildings Subject to HMC
+    pluto: 64uk-42ks            # Primary Land Use Tax Lot Output (year built, lot size, coordinates)
+    registrations: tesw-yqqr    # HPD multiple dwelling registrations
+    contacts: feu5-w2e2         # HPD registration contacts (company names only)
+    names_hny: hg8x-zxpr        # Affordable Housing Production by Building (official building names)
     violations: wvxf-dwi5       # HPD Housing Maintenance Code Violations
-    complaints: erm2-nwe9       # 311 Service Requests (housing + noise)
-    bedbugs: wz6d-d3jb          # HPD Bedbug Reporting
-  start_date: "2024-01-01"
+    complaints: erm2-nwe9       # 311 Service Requests (HPD + noise/sanitation types)
+    bedbugs: wz6d-d3jb          # Bedbug Reporting
+  start_date: "2024-01-01"      # first event date downloaded
+  end_date: "2026-11-15"        # snapshot end (exclusive): the data is frozen at this date
+  bedbug_start_date: "2021-01-01"
   min_units: 3                  # keep residential buildings with 3+ units
-  local_dir: data
+  raw_dir: data/raw             # local, written by data_prep/download.py
+  clean_dir: data/clean         # local, written by data_prep/clean.py
+  processed_dir: data/processed # local, written by data_prep/make_dataset.py, uploaded to GCS
+  cache_dir: data/cache         # where src/ingest.py puts the files it downloads from GCS
   gcs:
-    bucket: rental-radar-ml-data   # set to your bucket name
+    bucket: rental-radar-ml-data   # override with the GCS_BUCKET environment variable
     prefix: v1
+    files: [snapshots.parquet, live.parquet, buildings.parquet, manifest.json]
 
 features:
   lookback_months: [3, 12]      # complaint / violation counts over these windows
   bedbug_lookback_months: 24
   complaint_categories: [noise, heat, street, upkeep, mold, pests, sanitation]
+  per_unit_rates: true          # also give complaints and violations per 10 units (reduces size bias)
 
 target:
   # y = 1 if the building receives at least one class B or C HPD violation
@@ -29,34 +41,39 @@ target:
   horizon_months: 6
 
 split:
-  # time-based split: each set is a snapshot of all buildings at a cutoff date.
+  # Time-based split: each set is a snapshot of every building at a cutoff date.
   # Features use only data before the cutoff; labels use only the horizon after it.
   train_cutoff: "2025-05-01"
   val_cutoff: "2025-11-01"
   test_cutoff: "2026-05-01"
+  live_cutoff: "2026-11-14"     # features for serving: the latest data, no label yet
 
 models:
   logistic_regression:
     C: 1.0
     max_iter: 2000
   xgboost:
-    n_estimators: 400
+    n_estimators: 600
     max_depth: 6
     learning_rate: 0.05
     subsample: 0.8
     colsample_bytree: 0.8
+    min_child_weight: 5
     early_stopping_rounds: 30
 
 evaluation:
-  primary_metric: pr_auc        # positives are ~14%, so accuracy is not used
-  threshold_metric: f1          # decision threshold picked on validation only
-  top_k_fraction: 0.10
+  primary_metric: pr_auc        # positives are about 14%, so accuracy is not the main metric
+  threshold_metric: f1          # decision threshold picked on validation only, never on test
+  top_k_fraction: 0.10          # precision among the 10% of buildings ranked riskiest
+  select_model_by: val_pr_auc   # the served model is chosen on validation, not test
 
 mlflow:
-  tracking_uri: mlruns
+  tracking_uri: mlruns          # override with the MLFLOW_TRACKING_URI environment variable
   experiment: violation-risk
+  registered_model: violation-risk-classifier
 
 serving:
   model_dir: artifacts/model
   host: 0.0.0.0
   port: 8080
+  cors_origins: ["*"]           # the front end is hosted on a different domain

@@ -15,3 +15,8 @@ def test_split_must_be_in_time_order(tmp_path):
     bad.write_text(text)
     with pytest.raises(ValueError):
         load_config(bad)
+
+
+def test_env_overrides_bucket(monkeypatch):
+    monkeypatch.setenv("GCS_BUCKET", "my-bucket")
+    assert load_config()["data"]["gcs"]["bucket"] == "my-bucket"
