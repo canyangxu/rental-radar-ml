@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rental Radar ML · Project</title>
+<meta name="description" content="How the Rental Radar forecast is built: the data pipeline, the model's test results, and a form that sends your own request to the deployed /predict API. Duke AIPI 510, Module Project 3.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='14' r='11' fill='%23CFE3FF' stroke='%231E1B17' stroke-width='2.5'/%3E%3Crect x='7' y='25' width='18' height='5' rx='2' fill='%231E1B17'/%3E%3C/svg%3E">
+</head>
+<body class="project">
+
+<header class="nav">
+  <a class="brand" href="index.html" data-keep-api aria-label="Rental Radar Forecast, the renter page">
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><circle cx="16" cy="14" r="11" fill="#CFE3FF" stroke="#1E1B17" stroke-width="2.5"/><path d="M20 11l1.2 2.8 2.8 1.2-2.8 1.2-1.2 2.8-1.2-2.8-2.8-1.2 2.8-1.2z" fill="#F2B632"/><rect x="7" y="25" width="18" height="5" rx="2" fill="#1E1B17"/></svg>
+    <span>Rental Radar <b>Forecast</b></span>
+  </a>
+  <nav aria-label="Sections">
+    <a href="#model">Model</a>
+    <a href="#try">Try it</a>
+    <a data-repo href="#" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+  <!-- 1. What this is, and every link a grader needs -->
+  <section class="block phead" aria-labelledby="pTitle">
+    <p class="kicker">Duke AIPI 510 · Module Project 3 · Data/ML Engineering</p>
+    <h1 id="pTitle" class="h2">How the forecast is made, <span class="soft">from public records to a live API</span></h1>
+    <p class="sub">A binary classifier predicts whether a NYC apartment building gets a <b>class B or C HPD violation in the next 6 months</b>. Data is cleaned locally and stored in Google Cloud Storage. Training is tracked in MLflow, the model is served by FastAPI on Cloud Run, and both pages of this site call that API from the browser.</p>
+    <div class="links">
+      <a class="card lk" href="index.html" data-keep-api><span class="cap">Front end · for renters</span><b>Search a building, get a forecast</b><span class="mono">Hugging Face Spaces</span></a>
+      <a class="card lk" id="lkDocs" target="_blank" rel="noopener"><span class="cap">Model API · Cloud Run</span><b>Interactive docs (OpenAPI)</b><span class="mono" id="lkApi"></span></a>
+      <a class="card lk" href="#try"><span class="cap">Endpoint</span><b>POST /predict</b><span class="mono">JSON in, probability + drivers out</span></a>
+      <a class="card lk" data-repo href="#" target="_blank" rel="noopener"><span class="cap">Code</span><b>GitHub repository</b><span class="mono">README, config.yaml, Dockerfile, PRs</span></a>
+    </div>
+  </section>
+
+  <!-- 2. Pipeline and model results (from GET /model) -->
+  <section id="model" class="block" aria-labelledby="modelTitle">
+    <p class="kicker">Pipeline and results</p>
+    <h2 id="modelTitle" class="h2">A model that beats the obvious rule, <span class="soft">on data it never saw</span></h2>
+    <p class="sub">Trained on every NYC building's record before May 2025, tuned on Nov 2025, then tested on May 2026: <b>162,997 buildings</b>, of which <b>14%</b> really got a B/C violation. The numbers below come live from <code>GET /model</code>.</p>
+
+    <div class="flow" aria-label="Pipeline">
+      <div class="step"><b>NYC Open Data</b><span>311 complaints, HPD violations, bedbugs</span></div>
+      <div class="step"><b>Google Cloud Storage</b><span>cleaned dataset</span></div>
+      <div class="step"><b>Training + MLflow</b><span>XGBoost vs logistic regression</span></div>
+      <div class="step"><b>Cloud Run API</b><span>FastAPI <code>/predict</code></span></div>
+      <div class="step hl"><b>This site</b><span>calls the API live</span></div>
+    </div>
+
+    <div class="grid3">
+      <div class="card stat">
+        <p class="cap">PR-AUC on the test set</p>
+        <div class="bars" id="bars"></div>
+        <p class="note">PR-AUC rewards finding the 14% that do get violations. Accuracy would not: answering "no" every time is already 86% accurate.</p>
+      </div>
+      <div class="card stat">
+        <p class="cap">Test set, threshold <span id="thr"></span></p>
+        <div class="cm" id="cm"></div>
+        <p class="note" id="cmNote"></p>
+      </div>
+      <div class="card stat">
+        <p class="cap">When it says 40%, is it 40%?</p>
+        <div class="calib" id="calib"></div>
+        <p class="note">One bar per predicted-risk band (0–10%, 10–20%…). Black tick: what the model predicted. Amber fill: how many of those buildings really got a violation.</p>
+      </div>
+    </div>
+    <p class="fine" id="modelMeta"></p>
+  </section>
+
+  <!-- 3. Try the API: user input -> POST /predict -> prediction -->
+  <section id="try" class="block" aria-labelledby="tryTitle">
+    <p class="kicker">Try the API</p>
+    <h2 id="tryTitle" class="h2">Describe a building, <span class="soft">send it to the deployed model</span></h2>
+    <p class="sub">Change any value and press <b>Predict</b>. The form sends JSON to <code>POST /predict</code> on Cloud Run and shows the answer. Empty fields are filled by the model with the training median. You can also start from a real building's record.</p>
+
+    <div class="try2">
+      <form class="card pform" id="pform" autocomplete="off">
+        <div class="presets">
+          <span class="cap">Start from</span>
+          <button type="button" class="btn ghost small" data-preset="quiet">Quiet small building</button>
+          <button type="button" class="btn ghost small" data-preset="busy">Busy Bronx walk-up</button>
+        </div>
+        <div class="loadreal">
+          <label for="realQ" class="cap">or a real building</label>
+          <div class="row"><input id="realQ" type="search" placeholder="The Max, or 606 W 57th St" minlength="2" maxlength="80">
+          <button type="button" class="btn ghost small" id="loadReal">Load its record</button></div>
+          <p class="fine" id="realNote"></p>
+        </div>
+
+        <fieldset><legend class="cap">The building</legend>
+          <label>Borough<select name="borough"><option value="">(not given)</option><option>BRONX</option><option>BROOKLYN</option><option>MANHATTAN</option><option>QUEENS</option><option>STATEN ISLAND</option></select></label>
+          <label>Units<input name="units" type="number" min="1" max="20000" step="1"></label>
+          <label>Stories<input name="stories" type="number" min="1" max="200" step="1"></label>
+          <label>Year built<input name="year_built" type="number" min="1700" max="2030" step="1"></label>
+          <label class="chk"><input name="has_mgmt" type="checkbox"> Management company registered</label>
+        </fieldset>
+        <fieldset><legend class="cap">311 complaints, past 12 months</legend>
+          <label>All<input name="c12_all" type="number" min="0" step="1"></label>
+          <label>Heat<input name="c12_heat" type="number" min="0" step="1"></label>
+          <label>Mold or leaks<input name="c12_mold" type="number" min="0" step="1"></label>
+          <label>Pests<input name="c12_pests" type="number" min="0" step="1"></label>
+        </fieldset>
+        <fieldset><legend class="cap">HPD violations, past 12 months</legend>
+          <label>Class A<input name="v12_a" type="number" min="0" step="1"></label>
+          <label>Class B<input name="v12_b" type="number" min="0" step="1"></label>
+          <label>Class C<input name="v12_c" type="number" min="0" step="1"></label>
+          <label>Bedbug units, 24 mo<input name="bb24_infested" type="number" min="0" step="1"></label>
+        </fieldset>
+        <button type="submit" class="btn">Predict</button>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="card pout" id="pout" aria-live="polite">
+        <p class="cap">Prediction</p>
+        <div class="pbig"><span id="pProb">–</span><span class="pill" id="pRisk" hidden></span></div>
+        <p class="pline" id="pLine">Press Predict to ask the model.</p>
+        <p class="note" id="pBand"></p>
+        <p class="cap" style="margin-top:22px">Why: the strongest drivers</p>
+        <div class="why" id="pWhy"></div>
+      </div>
+    </div>
+
+    <div class="card apicard">
+      <div class="apihead">
+        <span class="verb">POST</span><code id="apiUrl"></code>
+        <span class="lat" id="apiLat"></span>
+        <button type="button" class="btn small" id="copyCurl">Copy as curl</button>
+      </div>
+      <div class="io">
+        <div><p class="cap">Request JSON</p><pre id="apiReq">Press Predict to see the request.</pre></div>
+        <div><p class="cap">Response JSON</p><pre id="apiRes"></pre></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div>
+    <p><b>Limits.</b> The label is a <i>recorded</i> violation, and inspections follow tenant complaints, so buildings whose tenants complain less can look safer than they are. Location features carry neighborhood patterns. The model is for renters deciding what to ask, never for screening buildings or people. More in the README's ethics section.</p>
+    <p>Data: <a href="https://opendata.cityofnewyork.us/" target="_blank" rel="noopener">NYC Open Data</a>, frozen on Nov 14, 2026.</p>
+  </div>
+  <p class="fine">Duke AIPI 510 · Module Project 3 · <a data-repo href="#" target="_blank" rel="noopener">source on GitHub</a> · <a href="index.html" data-keep-api>renter page</a></p>
+</footer>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="project.js"></script>
+</body>
+</html>

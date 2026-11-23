@@ -1,47 +1,7 @@
-// Rental Radar Forecast front end: search -> GET /buildings/{id} -> POST /predict -> show the forecast.
+// Renter page: search -> GET /buildings/{id} -> POST /predict -> show the forecast. Helpers come from common.js.
 (() => {
   "use strict";
-  const cfg = window.RR_CONFIG || {};
-  const API = (new URLSearchParams(location.search).get("api") || cfg.API_URL || "").replace(/\/$/, "");
-  const $ = (s) => document.querySelector(s);
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const title = (s) => String(s || "").toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase()).replace(/\b(\d+)(St|Nd|Rd|Th)\b/gi, (m) => m.toLowerCase());
-  const pct = (x, d = 0) => `${(x * 100).toFixed(d)}%`;
-  const fmt = (n) => Number(n).toLocaleString("en-US");
-
-  for (const id of ["repoLink", "repoLink2"]) $("#" + id).href = cfg.REPO_URL || "#";
-  $("#apiUrl").textContent = `${API}/predict`;
-
-  // ---------- API calls ----------
-  // Each request owns its own "waking up" notice and only removes that notice, never someone else's message.
-  const WAKING = "Waking up the model server. The first request after a quiet spell can take about 20 seconds.";
-  async function call(path, opts = {}) {
-    let shown = false;
-    const slow = setTimeout(() => { if (!$("#status").textContent) { setStatus(WAKING); shown = true; } }, 2500);
-    const ctrl = new AbortController();
-    const kill = setTimeout(() => ctrl.abort(), 60000);
-    try {
-      const t0 = performance.now();
-      const r = await fetch(API + path, { ...opts, signal: ctrl.signal, headers: { "Content-Type": "application/json", ...(opts.headers || {}) } });
-      const ms = performance.now() - t0;
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) throw Object.assign(new Error(body.detail ? JSON.stringify(body.detail) : `HTTP ${r.status}`), { status: r.status });
-      return { body, ms };
-    } catch (e) {
-      if (e.name === "AbortError") throw new Error("The model server did not answer within 60 seconds.");
-      if (e instanceof TypeError) throw new Error("Could not reach the model API. Check your connection and try again.");
-      throw e;
-    } finally {
-      clearTimeout(kill);
-      clearTimeout(slow);
-      if (shown && $("#status").textContent === WAKING) setStatus("");
-    }
-  }
-  function setStatus(msg, err = false) {
-    const s = $("#status");
-    s.textContent = msg || "";
-    s.classList.toggle("err", err);
-  }
+  const { cfg, API, $, esc, title, pct, fmt, call, setStatus } = window.RR;
 
   // ---------- search ----------
   const input = $("#q"), list = $("#results");
@@ -128,7 +88,6 @@
   $("#again").addEventListener("click", () => { window.scrollTo({ top: 0 }); input.focus(); input.select(); });
 
   // ---------- forecast ----------
-  let lastReq = null;
   async function choose(bid) {
     hideList();
     setStatus("Asking the model…");
@@ -138,11 +97,9 @@
     try {
       const { body: b } = await call(`/buildings/${bid}`);
       renderBuilding(b.building);
-      lastReq = b.features;
-      const { body: p, ms } = await call("/predict", { method: "POST", body: JSON.stringify(b.features) });
+      const { body: p } = await call("/predict", { method: "POST", body: JSON.stringify(b.features) });
       setStatus("");  // removes "Asking the model…", which this function set
       renderForecast(p, b.building);
-      renderApi(b.features, p, ms);
       history.replaceState(null, "", `#b${bid}`);
       out.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
     } catch (e) {
@@ -244,49 +201,6 @@
     $("#fcMeta").textContent = `Model ${p.model_version} · a forecast, not an inspection`;
   }
 
-  function renderApi(req, res, ms) {
-    $("#apiReq").textContent = JSON.stringify(req, null, 2);
-    $("#apiRes").textContent = JSON.stringify(res, null, 2);
-    $("#apiLat").textContent = `200 OK · ${Math.round(ms)} ms round trip`;
-  }
-  $("#copyCurl").addEventListener("click", async () => {
-    const body = JSON.stringify(lastReq || { borough: "MANHATTAN", units: 837, c12_all: 34, v12_b: 1 });
-    const cmd = `curl -X POST ${API}/predict -H "Content-Type: application/json" -d '${body}'`;
-    try { await navigator.clipboard.writeText(cmd); $("#copyCurl").textContent = "Copied"; }
-    catch { window.prompt("Copy this command", cmd); }
-    setTimeout(() => ($("#copyCurl").textContent = "Copy as curl"), 1600);
-  });
-
-  // ---------- model card (from GET /model) ----------
-  async function loadModel() {
-    try {
-      const { body: m } = await call("/model");
-      const t = m.test_metrics, rule = m.baselines.baseline_bc_last_year, no = m.baselines.baseline_always_no;
-      const rows = [["Always say no", no.pr_auc], ["Had a B/C violation last year", rule.pr_auc], [`Our model (${m.model_type === "xgboost" ? "XGBoost" : "logistic regression"})`, t.pr_auc, true]];
-      $("#bars").innerHTML = rows.map(([l, v, me]) => `<div class="bar${me ? " me" : ""}"><div class="lab"><span>${esc(l)}</span><b>${v.toFixed(3)}</b></div><div class="tr"><div class="fill" data-w="${v * 100}"></div></div></div>`).join("");
-      $("#thr").textContent = t.threshold.toFixed(2);
-      $("#cm").innerHTML = `<span></span><span class="h">said no</span><span class="h">said yes</span>
-        <span class="r">no violation</span><div class="c good"><b>${fmt(t.tn)}</b><span>correct</span></div><div class="c bad"><b>${fmt(t.fp)}</b><span>false alarm</span></div>
-        <span class="r">got one</span><div class="c bad"><b>${fmt(t.fn)}</b><span>missed</span></div><div class="c good"><b>${fmt(t.tp)}</b><span>caught</span></div>`;
-      $("#cmNote").textContent = `Catches ${pct(t.recall)} of the buildings that got a violation; ${pct(t.precision)} of its alerts were right. The "last year" rule: ${pct(rule.recall)} caught, ${pct(rule.precision)} right.`;
-      $("#calib").innerHTML = m.calibration_bands.map((b) => `<div class="col" title="${Math.round(b.low * 100)}–${Math.round(b.high * 100)}% band: ${pct(b.observed_rate)} observed, ${fmt(b.n)} buildings">
-        <div class="obs" data-h="${b.observed_rate * 100}"></div><div class="tick" style="bottom:${b.mean_predicted * 100}%"></div><span class="bl">${Math.round(b.low * 100)}</span></div>`).join("");
-      $("#calib").classList.add("calib-wrap");
-      $("#modelMeta").textContent = `Model ${m.version} · trained ${m.trained_at.slice(0, 10)} · ${m.n_features} features · threshold ${m.threshold_rule} · ROC-AUC ${t.roc_auc.toFixed(3)} · top-10% precision ${pct(t.precision_top_10pct)}`;
-      const io = new IntersectionObserver((es) => es.forEach((e) => {
-        if (!e.isIntersecting) return;
-        e.target.querySelectorAll("[data-w]").forEach((f) => (f.style.width = f.dataset.w + "%"));
-        e.target.querySelectorAll("[data-h]").forEach((f) => (f.style.height = f.dataset.h + "%"));
-        io.unobserve(e.target);
-      }), { threshold: 0.25 });
-      io.observe($("#model"));
-    } catch (e) {
-      $("#modelMeta").textContent = `Model details unavailable: ${e.message}`;
-    }
-  }
-
-  loadModel().then(() => {
-    const m = location.hash.match(/^#b(\d+)$/);
-    if (m) choose(m[1]);
-  });
+  const m = location.hash.match(/^#b(\d+)$/);
+  if (m) choose(m[1]);
 })();

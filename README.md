@@ -31,10 +31,10 @@ Every requirement of the assignment, with where to find it. All links point at t
 | Dockerfile with train and serve entry points, built and run locally | [`Dockerfile`](Dockerfile), [`scripts/entrypoint.sh`](scripts/entrypoint.sh), [§6.3](#63-build-and-run-the-docker-image-locally) | `docker run rental-radar-ml` (serve), `... train`, `... test` |
 | FastAPI `/predict` with JSON input, tested with curl | [`api/main.py`](api/main.py), [`scripts/smoke_test.sh`](scripts/smoke_test.sh), [§6.4](#64-test-the-api-locally-with-curl) | `POST /predict` returns probability, label and drivers; invalid input returns 422 |
 | Deployed to the cloud, `/predict` public and verified over HTTP | [§6.5](#65-deploy) | **Cloud Run**: `POST https://rental-radar-ml-api-976733016944.us-east1.run.app/predict` (live response shown in §6.5) |
-| Front end that calls the deployed API, interactive, hosted publicly | [`frontend/`](frontend), [§7](#7-front-end) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** — search → forecast card → model section → the live request it just sent |
+| Front end that calls the deployed API, interactive, hosted publicly | [`frontend/`](frontend), [§7](#7-front-end) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** — renter page (search → forecast card) and a project page with a form that sends your own input to `/predict` |
 | README sections | this file | overview and goals, dataset, model and evaluation, cloud services, setup, usage (train, build, test the API, deploy), links |
 | `requirements.txt` | [`requirements.txt`](requirements.txt) | pinned versions, Python 3.12 |
-| Tests | [`tests/`](tests) | 30 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
+| Tests | [`tests/`](tests) | 40 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
 | Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment |
 | Ethics and limitations | [§9](#9-ethics-and-limitations) | label bias from complaint-driven inspections, neighborhood signal, size bias, error costs, drift |
 
@@ -208,7 +208,7 @@ Requirements: Python 3.12 and Docker. Cloud steps also need the [gcloud CLI](htt
 git clone https://github.com/canyangxu/rental-radar-ml.git && cd rental-radar-ml
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt          # pinned versions
-pytest -q                                 # 30 tests; all but one run offline on synthetic data
+pytest -q                                 # 40 tests; all but one run offline on synthetic data
 ```
 
 Every parameter is in [`config.yaml`](config.yaml): data sources and dates, feature windows, target, split cutoffs, model hyperparameters, evaluation, MLflow and serving. Three environment variables override per-machine values:
@@ -278,7 +278,8 @@ curl -X POST http://localhost:8080/predict -H "Content-Type: application/json" \
 |---|---|
 | `POST /predict` | JSON features of one building → probability, 0/1 label, risk level, NYC percentile, backtest band, drivers |
 | `POST /predict/batch` | `{"instances": [...]}`, up to 500 buildings |
-| `GET /buildings/search?q=` | find a building by name or address (`625 W 57th St`, `The Max`) |
+| `GET /buildings/search?q=` | find a building by name or address (`625 W 57th St`, `22 44 Jackson`, `The Max`) |
+| `GET /buildings/lookup?q=` | fallback for names we do not have (`5Pointz`): OpenStreetMap Nominatim, verified against our HPD buildings on the same street |
 | `GET /buildings/{bid}` | the building's latest features: the exact JSON the front end sends to `/predict` |
 | `GET /model` | version, threshold, test metrics, baselines, calibration |
 | `GET /health`, `GET /docs` | health check; OpenAPI docs |
@@ -310,17 +311,21 @@ Response from the live service (drivers trimmed):
 
 ## 7. Front end
 
-A static page (HTML, CSS and JavaScript, no build step) in [`frontend/`](frontend), in the same visual style as the Rental Radar app. It sends every request to the deployed API:
+A custom web app (HTML, CSS and JavaScript `fetch`, no build step) in [`frontend/`](frontend), in the same visual style as the Rental Radar app. It has two pages, and both send every request to the deployed API.
 
-1. **Search** a building by name or address, or try an example. `GET /buildings/search`
+**`index.html`: for renters**
+1. **Search** a building by name or address, or try an example. `GET /buildings/search`. When nothing matches, a button looks the name up on OpenStreetMap: `GET /buildings/lookup`.
 2. **Forecast card.** `GET /buildings/{id}` returns the features, then `POST /predict`:
    - the probability, with a count-up animation;
    - a gauge with the NYC average marked;
    - a "Top N% riskiest in NYC" sticker from the percentile (The Max: top 17%);
    - the reasons behind the score;
    - one question to ask at the viewing.
-3. **Behind the forecast.** `GET /model` supplies the pipeline steps, PR-AUC against the baselines, the confusion matrix and calibration.
-4. **The live request.** The exact JSON sent to `/predict`, the response, the latency and a copy-as-curl button.
+
+**`project.html`: for the course and graders**
+1. **Links** to the front end, the API docs, `/predict` and the repository.
+2. **Pipeline and results.** `GET /model` supplies PR-AUC against the baselines, the confusion matrix and calibration.
+3. **Try the API.** A form collects the building's attributes and history, sends them to `POST /predict` and shows the probability, risk level, backtest band and drivers, with the exact request and response JSON, the latency and a copy-as-curl button. It can start from a preset or from a real building's record (`GET /buildings/{id}`).
 
 The API base URL is set in `frontend/config.js` (`?api=` overrides it). Run it locally:
 ```bash
@@ -347,9 +352,9 @@ src/
   evaluate.py            metrics, calibration, figures
   predict.py             load the model bundle, predict, explain
 api/                     FastAPI app (main.py) and request/response schemas (schemas.py)
-frontend/                static web front end (Hugging Face Space)
+frontend/                web front end (Hugging Face Space): index.html for renters, project.html for graders
 scripts/                 setup_gcs.sh, deploy_cloudrun.sh, deploy_frontend_hf.sh, smoke_test.sh, entrypoint.sh
-tests/                   30 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
+tests/                   40 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
 reports/                 test metrics (metrics.json) and figures from the latest run
 docs/img/                screenshots
 ```
