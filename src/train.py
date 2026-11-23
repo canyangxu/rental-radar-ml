@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -51,6 +52,8 @@ def flatten(d: dict, prefix: str = "") -> dict:
 
 
 def git_sha() -> str:
+    if os.getenv("GIT_SHA"):  # set in the container, which has no .git folder
+        return os.environ["GIT_SHA"][:7]
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
     except Exception:
@@ -116,7 +119,10 @@ def main() -> dict:
     print(f"rows: train {len(train):,}  val {len(val):,}  test {len(test):,}  "
           f"positive rate {train.y.mean():.3f} / {val.y.mean():.3f} / {test.y.mean():.3f}")
 
-    mlflow.set_tracking_uri(cfg["mlflow"]["tracking_uri"])
+    uri = cfg["mlflow"]["tracking_uri"]
+    if uri.startswith("sqlite:///"):  # the SQLite file's folder must exist before MLflow opens it
+        Path(uri.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+    mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(cfg["mlflow"]["experiment"])
     reports = path("reports")
     figs = reports / "figures"

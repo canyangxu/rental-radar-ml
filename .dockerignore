@@ -1,0 +1,14 @@
+# Keep the build context small: the image needs code, config and the trained model bundle only
+.git
+.venv
+.pytest_cache
+**/__pycache__
+data/
+mlruns/
+mlflow.db
+frontend/
+reports/
+docs/
+*.md
+.env
+gcp-key*.json
