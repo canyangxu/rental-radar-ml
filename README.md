@@ -21,21 +21,21 @@ Every requirement of the assignment, with where to find it. All links point at t
 
 | Requirement | Where it is | Evidence |
 |---|---|---|
-| Public dataset, supervised task, target and metric | [§1](#1-overview-and-goals), [§2](#2-dataset) | NYC Open Data; binary target "class B/C HPD violation in the next 6 months"; primary metric PR-AUC |
+| Public dataset, supervised task, target and metric | [§1](#1-overview-and-goals), [§2](#2-dataset) | 8 public datasets from NYC Open Data, the city's official portal (open under the NYC Open Data Law, downloadable without an account): official titles, publishers, dataset IDs, the API used, filters, rows downloaded and the download date are in §2, with a one-line `curl` anyone can run; binary target "class B/C HPD violation in the next 6 months"; primary metric PR-AUC |
 | Cleaned locally, stored in the cloud | [`data_prep/`](data_prep), [§4](#4-cloud-services) | cleaned with DuckDB, uploaded to **Google Cloud Storage** `gs://rental-radar-ml-7631fd34/v1/` with SHA-256 hashes |
 | Script that downloads the data in the pipeline | [`src/ingest.py`](src/ingest.py) | `python -m src.train` downloads from GCS and verifies every file before training |
 | Simple model | [`src/train.py`](src/train.py), [§3](#3-model-and-evaluation) | two baselines, logistic regression, XGBoost (selected on validation PR-AUC) |
 | Pipeline: ingest, preprocessing and features, split, train, evaluate | [`src/`](src) | `ingest.py` → `features.py` → `split.py` (time-based train/val/test) → `train.py` → `evaluate.py` |
 | `config.yaml` | [`config.yaml`](config.yaml) | data sources, dates, features, target, split, hyperparameters, evaluation, MLflow, serving |
 | Experiment tracking (params, metrics, artifacts) | [§3 MLflow](#experiment-tracking-mlflow) | MLflow parent run + 4 nested runs; params, metrics, datasets, figures, model; registered as `violation-risk-classifier` |
-| Dockerfile with train and serve entry points, built and run locally | [`Dockerfile`](Dockerfile), [`scripts/entrypoint.sh`](scripts/entrypoint.sh), [§6.3](#63-build-and-run-the-docker-image-locally) | `docker run rental-radar-ml` (serve), `... train`, `... test` |
+| Dockerfile with train and serve entry points, built and run locally | [`Dockerfile`](Dockerfile), [`scripts/entrypoint.sh`](scripts/entrypoint.sh), [§6.3](#63-build-and-run-the-docker-image-locally) | `docker run rental-radar-ml` (serve), `... train`, `... test`; local run output (health, smoke test, 41 tests passing in the container) in §6.3 |
 | FastAPI `/predict` with JSON input, tested with curl | [`api/main.py`](api/main.py), [`scripts/smoke_test.sh`](scripts/smoke_test.sh), [§6.4](#64-test-the-api-locally-with-curl) | `POST /predict` returns probability, label and drivers; invalid input returns 422 |
 | Deployed to the cloud, `/predict` public and verified over HTTP | [§6.5](#65-deploy) | **Cloud Run**: `POST https://rental-radar-ml-api-976733016944.us-east1.run.app/predict` (live response shown in §6.5) |
 | Front end that calls the deployed API, interactive, hosted publicly | [`frontend/`](frontend), [§7](#7-front-end) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** — renter page (search → forecast card) and a project page with a form that sends your own input to `/predict` |
 | README sections | this file | overview and goals, dataset, model and evaluation, cloud services, setup, usage (train, build, test the API, deploy), links |
 | `requirements.txt` | [`requirements.txt`](requirements.txt) | pinned versions, Python 3.12 |
-| Tests | [`tests/`](tests) | 40 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
-| Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment |
+| Tests | [`tests/`](tests) | 41 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
+| Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment → search backup → two-page front end; both team members opened and merged PRs from their own accounts (#1–#10 Canyang Xu, #11–#12 Xianyu Wang) |
 | Ethics and limitations | [§9](#9-ethics-and-limitations) | label bias from complaint-driven inspections, neighborhood signal, size bias, error costs, drift |
 
 ---
@@ -73,17 +73,29 @@ Renters in NYC sign leases with little idea how a building is maintained. The ci
 
 ## 2. Dataset
 
-All data is public, from [NYC Open Data](https://opendata.cityofnewyork.us/). The snapshot was downloaded on 2026-11-14 and covers events from 2024-01-01 to 2026-11-14.
+All data is public. It comes from [NYC Open Data](https://opendata.cityofnewyork.us/), the City of New York's official open data portal. Under the city's Open Data Law (Local Law 11 of 2012, NYC Administrative Code Title 23, Chapter 5), agency data is "open by default" and free to use ([what NYC Open Data is](https://www.nyc.gov/opendata/get-started/what-is-open-data-)). No account, API key or payment is needed to download it.
 
-| Dataset | ID | Used for |
-|---|---|---|
-| [Housing Maintenance Code Violations](https://data.cityofnewyork.us/d/wvxf-dwi5) | `wvxf-dwi5` | label (B/C violations after *T*) and violation features before *T*; 3.7M rows after cleaning |
-| [311 Service Requests](https://data.cityofnewyork.us/d/erm2-nwe9) | `erm2-nwe9` | complaint counts by topic: noise, heat, mold or leaks, pests, repairs, sanitation; 4.7M rows, 3.3M matched to a building |
-| [Bedbug Reporting](https://data.cityofnewyork.us/d/wz6d-d3jb) | `wz6d-d3jb` | infested and re-infested units in the past 24 months |
-| [Buildings Subject to HPD Jurisdiction](https://data.cityofnewyork.us/d/kj4p-ruqc) | `kj4p-ruqc` | the building list (active, 3+ legal units): **162,997 buildings** |
-| [PLUTO](https://data.cityofnewyork.us/d/64uk-42ks) | `64uk-42ks` | year built, buildings on the lot, coordinates |
-| [Registrations](https://data.cityofnewyork.us/d/tesw-yqqr) and [Registration Contacts](https://data.cityofnewyork.us/d/feu5-w2e2) | `tesw-yqqr`, `feu5-w2e2` | whether a management company is registered (company names only) |
-| [Affordable Housing Production by Building](https://data.cityofnewyork.us/d/hg8x-zxpr) | `hg8x-zxpr` | official building names, used for search only |
+**How it was downloaded.** [`data_prep/download.py`](data_prep/download.py) calls the portal's public Socrata API. For each dataset it first runs a `count(*)` query, then downloads pages of 50,000 rows as CSV from
+`https://data.cityofnewyork.us/resource/<dataset id>.csv`. Each request passes `$select` (only the columns we use), `$where` (the date window below) and `$limit`/`$offset`. The dataset IDs and dates are in [`config.yaml`](config.yaml) (`data.sources`, `data.start_date`, `data.end_date`). The script saves the expected row count, the source URL and the download time in `data/raw/<name>/_info.json`, and `manifest.json` (uploaded to GCS with the data) lists every source URL. Anyone can check that the data is public with one anonymous request:
+
+```bash
+curl "https://data.cityofnewyork.us/resource/wvxf-dwi5.csv?\$limit=5"        # first 5 HPD violations, no login
+curl "https://data.cityofnewyork.us/api/views/wvxf-dwi5.json"                 # the dataset's official metadata
+```
+
+**Snapshot.** Downloaded on **2026-11-14** between 18:01 and 18:42 UTC (about 514 MB of gzipped CSV). It covers events from 2024-01-01 through 2026-11-14 (`end_date` 2026-11-15 is exclusive). Bedbug filings start at 2021-01-01 because the 24-month bedbug feature needs a longer history. NYC Open Data updates these datasets daily to quarterly, so a download on another day will differ slightly. The cleaned, frozen copy used for training is the one in Google Cloud Storage ([§4](#4-cloud-services)).
+
+| Dataset (official title, publisher) | ID | Filter | Rows downloaded | Used for |
+|---|---|---|---|---|
+| [Housing Maintenance Code Violations](https://data.cityofnewyork.us/d/wvxf-dwi5), HPD | `wvxf-dwi5` | inspected 2024-01-01 to 2026-11-14, or still open | 4,495,365 | label (B/C violations after *T*) and violation features before *T*; 3,687,956 rows after cleaning |
+| [311 Service Requests from 2020 to Present](https://data.cityofnewyork.us/d/erm2-nwe9), Office of Technology and Innovation | `erm2-nwe9` | created 2024-01-01 to 2026-11-14; HPD complaints plus 12 noise, pest, sanitation and building-system types | 4,739,363 | complaint counts by topic: noise, heat, mold or leaks, pests, repairs, sanitation; 3,314,046 matched to a building |
+| [Bedbug Reporting](https://data.cityofnewyork.us/d/wz6d-d3jb), HPD | `wz6d-d3jb` | filing period ending 2021-01-01 or later | 556,876 | infested and re-infested units in the past 24 months; 490,201 filings after cleaning |
+| [Buildings Subject to HPD Jurisdiction](https://data.cityofnewyork.us/d/kj4p-ruqc), HPD | `kj4p-ruqc` | none | 381,934 | the building list (active, 3+ legal units): **162,997 buildings** |
+| [Primary Land Use Tax Lot Output (PLUTO)](https://data.cityofnewyork.us/d/64uk-42ks), Department of City Planning | `64uk-42ks` | 3+ residential units | 172,485 | year built, buildings on the lot, coordinates |
+| [Multiple Dwelling Registrations](https://data.cityofnewyork.us/d/tesw-yqqr) and [Registration Contacts](https://data.cityofnewyork.us/d/feu5-w2e2), HPD | `tesw-yqqr`, `feu5-w2e2` | none; contacts: company names only | 187,127 and 744,753 | whether a management company is registered |
+| [Affordable Housing Production by Building](https://data.cityofnewyork.us/d/hg8x-zxpr), HPD | `hg8x-zxpr` | none | 9,551 | official building names, used for search only |
+
+Raw and cleaned files are not committed to git (about 514 MB); `python -m data_prep.download` rebuilds them from the public source.
 
 **Modeling table.** Each building gets a snapshot at three cutoffs, giving 488,991 labeled rows:
 
@@ -208,7 +220,7 @@ Requirements: Python 3.12 and Docker. Cloud steps also need the [gcloud CLI](htt
 git clone https://github.com/canyangxu/rental-radar-ml.git && cd rental-radar-ml
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt          # pinned versions
-pytest -q                                 # 40 tests; all but one run offline on synthetic data
+pytest -q                                 # 41 tests; all but one run offline on synthetic data
 ```
 
 Every parameter is in [`config.yaml`](config.yaml): data sources and dates, feature windows, target, split cutoffs, model hyperparameters, evaluation, MLflow and serving. Three environment variables override per-machine values:
@@ -255,6 +267,20 @@ docker run --rm -e GCS_BUCKET=<bucket> -e GOOGLE_CLOUD_PROJECT=<project> \
   -v "$PWD/artifacts:/app/artifacts" -v "$PWD/mlruns:/app/mlruns" -v "$PWD/reports:/app/reports" \
   rental-radar-ml train                                      # train: full pipeline inside the container
 ```
+Output on 2026-11-23, with the image built from `main` (serving on port 8090 on the host):
+```text
+$ docker run -d -p 8090:8080 rental-radar-ml && curl localhost:8090/health
+{"status":"ok","model_loaded":true,"model_version":"20261123-170838-d806870"}
+$ scripts/smoke_test.sh http://localhost:8090
+...
+$ curl -X POST http://localhost:8090/predict -d '{"units": -3}'   (expect 422)
+HTTP 422
+all endpoints OK
+$ docker run --rm rental-radar-ml test
+.........................................                                [100%]
+41 passed in 29.09s
+```
+The same Dockerfile is what Cloud Build uses for the Cloud Run deployment (§6.5).
 
 ### 6.4 Test the API locally with curl
 ```bash
@@ -311,7 +337,7 @@ Response from the live service (drivers trimmed):
 
 ## 7. Front end
 
-A custom web app (HTML, CSS and JavaScript `fetch`, no build step) in [`frontend/`](frontend), in the same visual style as the Rental Radar app. It has two pages, and both send every request to the deployed API.
+A custom web app (HTML, CSS and JavaScript `fetch`, no build step) in [`frontend/`](frontend), in the visual style of Rental Radar NYC, our team's renter app from another course. It has two pages, and both send every request to the deployed API.
 
 **`index.html`: for renters**
 1. **Search** a building by name or address, or try an example. `GET /buildings/search`. When nothing matches, a button looks the name up on OpenStreetMap: `GET /buildings/lookup`.
@@ -332,7 +358,7 @@ The API base URL is set in `frontend/config.js` (`?api=` overrides it). Run it l
 python -m http.server 5173 --directory frontend     # with the API on :8080
 ```
 
-| Search | Model section | Live request |
+| Renter page: search | Project page: model results | Project page: try the API |
 |---|---|---|
 | ![](docs/img/frontend-hero.png) | ![](docs/img/frontend-model.png) | ![](docs/img/frontend-api.png) |
 
@@ -354,12 +380,12 @@ src/
 api/                     FastAPI app (main.py) and request/response schemas (schemas.py)
 frontend/                web front end (Hugging Face Space): index.html for renters, project.html for graders
 scripts/                 setup_gcs.sh, deploy_cloudrun.sh, deploy_frontend_hf.sh, smoke_test.sh, entrypoint.sh
-tests/                   40 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
+tests/                   41 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
 reports/                 test metrics (metrics.json) and figures from the latest run
 docs/img/                screenshots
 ```
 
-Development history: each part landed through its own branch and [pull request](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr): skeleton (#1) → data and GCS (#2) → model and MLflow (#3) → API (#4) → Docker and Cloud Run (#5) → front end (#6) → README (#7) → code-review fixes (#8) → live deployment links (#9) → front-end polish (#10).
+Development history: each part landed through its own branch and [pull request](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr): skeleton (#1) → data and GCS (#2) → model and MLflow (#3) → API (#4) → Docker and Cloud Run (#5) → front end (#6) → README (#7) → code-review fixes (#8) → live deployment links (#9) → front-end polish (#10) → search backup: hyphen-free addresses and OpenStreetMap name lookup (#11) → renter page and project page (#12). PRs #1–#10 by Canyang Xu ([@canyangxu](https://github.com/canyangxu)); #11 and #12 by Xianyu Wang ([@sienna-wangxy](https://github.com/sienna-wangxy)).
 
 ## 9. Ethics and limitations
 

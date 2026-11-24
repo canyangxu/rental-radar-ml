@@ -77,7 +77,7 @@
   <section id="try" class="block" aria-labelledby="tryTitle">
     <p class="kicker">Try the API</p>
     <h2 id="tryTitle" class="h2">Describe a building, <span class="soft">send it to the deployed model</span></h2>
-    <p class="sub">Change any value and press <b>Predict</b>. The form sends JSON to <code>POST /predict</code> on Cloud Run and shows the answer. Empty fields are filled by the model with the training median. You can also start from a real building's record.</p>
+    <p class="sub">Change any value and press <b>Predict</b>. The form sends JSON to <code>POST /predict</code> on Cloud Run and shows the answer. An empty count means 0; an empty attribute (units, stories, year built) gets the training median. You can also start from a real building's record.</p>
 
     <div class="try2">
       <form class="card pform" id="pform" autocomplete="off">
