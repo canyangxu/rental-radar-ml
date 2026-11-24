@@ -34,8 +34,8 @@ Every requirement of the assignment, with where to find it. All links point at t
 | Front end that calls the deployed API, interactive, hosted publicly | [`frontend/`](frontend), [§7](#7-front-end) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** — renter page (search → forecast card) and a project page with a form that sends your own input to `/predict` |
 | README sections | this file | overview and goals, dataset, model and evaluation, cloud services, setup, usage (train, build, test the API, deploy), links |
 | `requirements.txt` | [`requirements.txt`](requirements.txt) | pinned versions, Python 3.12 |
-| Tests | [`tests/`](tests) | 40 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
-| Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment |
+| Tests | [`tests/`](tests) | 41 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
+| Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment → search backup → two-page front end; both team members opened and merged PRs from their own accounts (#1–#10 Canyang Xu, #11–#12 Xianyu Wang) |
 | Ethics and limitations | [§9](#9-ethics-and-limitations) | label bias from complaint-driven inspections, neighborhood signal, size bias, error costs, drift |
 
 ---
@@ -208,7 +208,7 @@ Requirements: Python 3.12 and Docker. Cloud steps also need the [gcloud CLI](htt
 git clone https://github.com/canyangxu/rental-radar-ml.git && cd rental-radar-ml
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt          # pinned versions
-pytest -q                                 # 40 tests; all but one run offline on synthetic data
+pytest -q                                 # 41 tests; all but one run offline on synthetic data
 ```
 
 Every parameter is in [`config.yaml`](config.yaml): data sources and dates, feature windows, target, split cutoffs, model hyperparameters, evaluation, MLflow and serving. Three environment variables override per-machine values:
@@ -332,7 +332,7 @@ The API base URL is set in `frontend/config.js` (`?api=` overrides it). Run it l
 python -m http.server 5173 --directory frontend     # with the API on :8080
 ```
 
-| Search | Model section | Live request |
+| Renter page: search | Project page: model results | Project page: try the API |
 |---|---|---|
 | ![](docs/img/frontend-hero.png) | ![](docs/img/frontend-model.png) | ![](docs/img/frontend-api.png) |
 
@@ -354,12 +354,12 @@ src/
 api/                     FastAPI app (main.py) and request/response schemas (schemas.py)
 frontend/                web front end (Hugging Face Space): index.html for renters, project.html for graders
 scripts/                 setup_gcs.sh, deploy_cloudrun.sh, deploy_frontend_hf.sh, smoke_test.sh, entrypoint.sh
-tests/                   40 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
+tests/                   41 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
 reports/                 test metrics (metrics.json) and figures from the latest run
 docs/img/                screenshots
 ```
 
-Development history: each part landed through its own branch and [pull request](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr): skeleton (#1) → data and GCS (#2) → model and MLflow (#3) → API (#4) → Docker and Cloud Run (#5) → front end (#6) → README (#7) → code-review fixes (#8) → live deployment links (#9) → front-end polish (#10).
+Development history: each part landed through its own branch and [pull request](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr): skeleton (#1) → data and GCS (#2) → model and MLflow (#3) → API (#4) → Docker and Cloud Run (#5) → front end (#6) → README (#7) → code-review fixes (#8) → live deployment links (#9) → front-end polish (#10) → search backup: hyphen-free addresses and OpenStreetMap name lookup (#11) → renter page and project page (#12). PRs #1–#10 by Canyang Xu ([@canyangxu](https://github.com/canyangxu)); #11 and #12 by Xianyu Wang ([@sienna-wangxy](https://github.com/sienna-wangxy)).
 
 ## 9. Ethics and limitations
 

@@ -24,7 +24,7 @@
     if (!items.length) {
       // Nothing in our own records: offer the OpenStreetMap lookup, but only when the user asks for it.
       list.innerHTML = `<li class="empty"${note ? ' aria-disabled="true"' : ""}><span class="ad">${note ? esc(note) : `No NYC building with 3+ units matches “${esc(q)}”. Try the street address, or:`}</span>
-        ${note ? "" : `<button type="button" class="btn ghost small lookup" data-q="${esc(q)}">在网上查找这个楼名 / Look up this name online</button>`}</li>`;
+        ${note ? "" : `<button type="button" class="btn ghost small lookup" data-q="${esc(q)}">Look up this name online</button>`}</li>`;
     } else {
       list.innerHTML = items.map((b, i) => `<li role="option" id="opt${i}" data-i="${i}" aria-selected="false">
         <div><div class="nm">${esc(b.name ? b.name.split(" / ")[0] : title(b.address))}</div>
