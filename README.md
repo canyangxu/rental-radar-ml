@@ -36,7 +36,7 @@ Every requirement of the assignment, with where to find it. All links point at t
 | `requirements.txt` | [`requirements.txt`](requirements.txt) | pinned versions, Python 3.12 |
 | Tests | [`tests/`](tests) | 46 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
 | Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment → search backup → two-page front end; both team members opened and merged PRs from their own accounts (#1–#10 Canyang Xu, #11–#12 Xianyu Wang) |
-| Ethics and limitations | [§9](#9-ethics-and-limitations) | label bias from complaint-driven inspections, neighborhood signal, size bias, error costs, drift |
+| Ethics and limitations | [§9](#9-ethics-and-limitations) | summary in §1; full section in §9: label bias from complaint-driven inspections, neighborhood signal and intended use, size bias, error costs, time and drift, scope, data, model and evaluation, search, deployment |
 
 ---
 
@@ -70,6 +70,13 @@ Renters in NYC sign leases with little idea how a building is maintained. The ci
 1. A reproducible pipeline from raw public data to a deployed model, with every parameter in `config.yaml`.
 2. An honest evaluation: time-based split, a held-out test period, and comparison against simple baselines.
 3. A forecast a renter can act on: the probability, the reasons behind it, and one question to ask at the viewing.
+
+**Limitations at a glance** (details and what we did about each in [§9](#9-ethics-and-limitations))
+- **It predicts recorded violations, not building condition.** Inspections follow tenant complaints, so buildings whose tenants complain less can look safer than they are.
+- **It makes mistakes.** On the test set it misses 29% of the buildings that did get a B/C violation, and 36% of its alerts are false alarms.
+- **Location carries neighborhood patterns** linked to income and race. The score is meant to help renters ask questions, not to screen buildings or people.
+- **Limited scope and a frozen snapshot.** It covers NYC buildings with 3+ units on HPD's list, using data frozen on 2026-11-14 that is not refreshed automatically.
+- **A course deployment, not a production service.** The API has no authentication or rate limiting, the first request after a quiet spell can take about 20 seconds, and MLflow runs are stored locally.
 
 ## 2. Dataset
 
@@ -416,7 +423,26 @@ The page shows the probability and the calibration band instead of a yes/no verd
 
 The model should be retrained on new snapshots and re-checked on a later period before anyone relies on it.
 
-**Other limitations.**
-- 311 complaints are matched to buildings by normalized address, and about 30% do not match and are excluded.
-- Building names come from HPD data plus a short curated list, so some marketed names are not searchable; the street address always is.
-- The model is correlational: it does not explain *why* a building gets violations.
+**Scope.**
+- The model covers NYC buildings with 3+ legal units that are active on HPD's building list (162,997 buildings). One- and two-family homes are not covered, and neither are buildings HPD does not list, such as many co-ops and condos. For example, The Dakota (1 West 72nd Street) is not on the list, so the lookup says it cannot find it.
+- Forecasts are for the six months after the snapshot of 2026-11-14. Neither the model nor the features it serves are refreshed automatically, so forecasts grow stale over time.
+
+**Data.**
+- 311 complaints are matched to buildings by normalized address. About 30% (1,425,317 of 4,739,363) do not match and are excluded, so some buildings' complaint counts are too low.
+- NYC Open Data updates these datasets daily to quarterly, and HPD can post a violation weeks after the inspection. Downloading again gives slightly different numbers. The reported results can be reproduced from the frozen copy in Google Cloud Storage.
+- Data-entry errors are handled by fixed rules (caps and missing values, see §2). Different rules would change some features.
+
+**Model and evaluation.**
+- The model is correlational. It does not explain *why* a building gets violations. The drivers on the page are SHAP contributions: how much each feature moved this score, not causes.
+- Test results come from one six-month window.
+- The threshold maximizes F1 on validation. A renter or a city agency might prefer a different balance between missed buildings and false alarms. This is one reason the page shows the probability rather than a yes/no answer.
+
+**Search.**
+- Only 3,867 of the 162,997 buildings have a name in HPD data or our short curated list. The street address always works.
+- The fallback name lookup uses OpenStreetMap, a volunteer-edited third-party map. Its answers are not always complete or consistent. For 5Pointz, at a corner, it named "Jackson Avenue" on one call and "46th Avenue" on another. Every lookup result therefore states how it was matched: same address, same street, or nearby and still to be confirmed. The lookup calls OpenStreetMap at most once per second and caches the answers.
+
+**Deployment and engineering.**
+- The API is public, with no authentication or rate limiting. This suits a course demo but not a production service.
+- Cloud Run scales to zero, so the first request after a quiet period can take about 20 seconds. The page tells the user while it waits.
+- MLflow runs are stored locally in SQLite (`mlruns/`), not on a hosted tracking server. Graders can see them through the screenshot in §3 and the logged metrics in [`reports/metrics.json`](reports/metrics.json).
+- There is no monitoring of prediction drift and no automatic retraining. Retraining is a manual `python -m src.train` on a new snapshot.
