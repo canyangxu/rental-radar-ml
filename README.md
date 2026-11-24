@@ -28,13 +28,13 @@ Every requirement of the assignment, with where to find it. All links point at t
 | Pipeline: ingest, preprocessing and features, split, train, evaluate | [`src/`](src) | `ingest.py` → `features.py` → `split.py` (time-based train/val/test) → `train.py` → `evaluate.py` |
 | `config.yaml` | [`config.yaml`](config.yaml) | data sources, dates, features, target, split, hyperparameters, evaluation, MLflow, serving |
 | Experiment tracking (params, metrics, artifacts) | [§3 MLflow](#experiment-tracking-mlflow) | MLflow parent run + 4 nested runs; params, metrics, datasets, figures, model; registered as `violation-risk-classifier` |
-| Dockerfile with train and serve entry points, built and run locally | [`Dockerfile`](Dockerfile), [`scripts/entrypoint.sh`](scripts/entrypoint.sh), [§6.3](#63-build-and-run-the-docker-image-locally) | `docker run rental-radar-ml` (serve), `... train`, `... test`; local run output (health, smoke test, 41 tests passing in the container) in §6.3 |
+| Dockerfile with train and serve entry points, built and run locally | [`Dockerfile`](Dockerfile), [`scripts/entrypoint.sh`](scripts/entrypoint.sh), [§6.3](#63-build-and-run-the-docker-image-locally) | `docker run rental-radar-ml` (serve), `... train`, `... test`; local run output (health, smoke test, 45 tests passing in the container) in §6.3 |
 | FastAPI `/predict` with JSON input, tested with curl | [`api/main.py`](api/main.py), [`scripts/smoke_test.sh`](scripts/smoke_test.sh), [§6.4](#64-test-the-api-locally-with-curl) | `POST /predict` returns probability, label and drivers; invalid input returns 422 |
 | Deployed to the cloud, `/predict` public and verified over HTTP | [§6.5](#65-deploy) | **Cloud Run**: `POST https://rental-radar-ml-api-976733016944.us-east1.run.app/predict` (live response shown in §6.5) |
 | Front end that calls the deployed API, interactive, hosted publicly | [`frontend/`](frontend), [§7](#7-front-end) | **https://huggingface.co/spaces/canyangxu077/rental-radar-forecast** — renter page (search → forecast card) and a project page with a form that sends your own input to `/predict` |
 | README sections | this file | overview and goals, dataset, model and evaluation, cloud services, setup, usage (train, build, test the API, deploy), links |
 | `requirements.txt` | [`requirements.txt`](requirements.txt) | pinned versions, Python 3.12 |
-| Tests | [`tests/`](tests) | 41 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
+| Tests | [`tests/`](tests) | 45 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API |
 | Branches and pull requests | [pull requests](https://github.com/canyangxu/rental-radar-ml/pulls?q=is%3Apr) | one branch and PR per part: skeleton → data → model → API → Docker/Cloud Run → front end → docs → fixes → deployment → search backup → two-page front end; both team members opened and merged PRs from their own accounts (#1–#10 Canyang Xu, #11–#12 Xianyu Wang) |
 | Ethics and limitations | [§9](#9-ethics-and-limitations) | label bias from complaint-driven inspections, neighborhood signal, size bias, error costs, drift |
 
@@ -220,7 +220,7 @@ Requirements: Python 3.12 and Docker. Cloud steps also need the [gcloud CLI](htt
 git clone https://github.com/canyangxu/rental-radar-ml.git && cd rental-radar-ml
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt          # pinned versions
-pytest -q                                 # 41 tests; all but one run offline on synthetic data
+pytest -q                                 # 45 tests; all but one run offline on synthetic data
 ```
 
 Every parameter is in [`config.yaml`](config.yaml): data sources and dates, feature windows, target, split cutoffs, model hyperparameters, evaluation, MLflow and serving. Three environment variables override per-machine values:
@@ -277,8 +277,8 @@ $ curl -X POST http://localhost:8090/predict -d '{"units": -3}'   (expect 422)
 HTTP 422
 all endpoints OK
 $ docker run --rm rental-radar-ml test
-.........................................                                [100%]
-41 passed in 29.09s
+.............................................                            [100%]
+45 passed in 26.36s
 ```
 The same Dockerfile is what Cloud Build uses for the Cloud Run deployment (§6.5).
 
@@ -305,7 +305,7 @@ curl -X POST http://localhost:8080/predict -H "Content-Type: application/json" \
 | `POST /predict` | JSON features of one building → probability, 0/1 label, risk level, NYC percentile, backtest band, drivers |
 | `POST /predict/batch` | `{"instances": [...]}`, up to 500 buildings |
 | `GET /buildings/search?q=` | find a building by name or address (`625 W 57th St`, `22 44 Jackson`, `The Max`) |
-| `GET /buildings/lookup?q=` | fallback for names we do not have (`5Pointz`): OpenStreetMap Nominatim, verified against our HPD buildings on the same street |
+| `GET /buildings/lookup?q=` | fallback for names we do not have (`5Pointz`): OpenStreetMap Nominatim, verified against our HPD buildings. When OSM gives a house number, only that exact address counts (otherwise "not found", never the building next door); without one, the building must be on the same street nearby |
 | `GET /buildings/{bid}` | the building's latest features: the exact JSON the front end sends to `/predict` |
 | `GET /model` | version, threshold, test metrics, baselines, calibration |
 | `GET /health`, `GET /docs` | health check; OpenAPI docs |
@@ -380,7 +380,7 @@ src/
 api/                     FastAPI app (main.py) and request/response schemas (schemas.py)
 frontend/                web front end (Hugging Face Space): index.html for renters, project.html for graders
 scripts/                 setup_gcs.sh, deploy_cloudrun.sh, deploy_frontend_hf.sh, smoke_test.sh, entrypoint.sh
-tests/                   41 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
+tests/                   45 tests: config, leakage at the cutoff, GCS integrity, features, training end to end, API
 reports/                 test metrics (metrics.json) and figures from the latest run
 docs/img/                screenshots
 ```
