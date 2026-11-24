@@ -29,7 +29,7 @@
       list.innerHTML = items.map((b, i) => `<li role="option" id="opt${i}" data-i="${i}" aria-selected="false">
         <div><div class="nm">${esc(b.name ? b.name.split(" / ")[0] : title(b.address))}</div>
         <div class="ad">${esc(title(b.address))}, ${esc(title(b.borough))} ${esc(b.zip || "")}</div>
-        ${b.source ? `<a class="src" href="${esc(b.source_url)}" target="_blank" rel="noopener">via OpenStreetMap · verified in HPD records</a>` : ""}</div>
+        ${b.source ? `<a class="src" href="${esc(b.source_url)}" target="_blank" rel="noopener">via OpenStreetMap · ${b.match === "nearby" ? "nearby, please confirm the address" : esc(b.match || "") + " in HPD records"}</a>` : ""}</div>
         <span class="u">${b.units ? fmt(b.units) + " units" : ""}</span></li>`).join("");
     }
     list.hidden = false;

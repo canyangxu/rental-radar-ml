@@ -156,18 +156,21 @@ def test_lookup_5pointz_picks_the_building_on_the_osm_street(client, no_network,
     assert first["bid"] == 4 and first["address"] == "22-44 JACKSON AVENUE" and first["units"] == 1122
     assert 80 <= first["distance_m"] <= 100
     assert first["source"] == "OpenStreetMap (Nominatim)" and first["source_url"].startswith("https://www.openstreetmap.org/way/")
-    assert first["matched_name"] == "5 Pointz" and body["reason"]
+    assert first["matched_name"] == "5 Pointz" and first["match"] == "same street" and body["reason"]
     assert 5 not in [r["bid"] for r in body["results"]]
 
     client.get("/buildings/lookup", params={"q": "5pointz "})  # same name: served from the cache
     assert len(calls) == 1
 
 
-def test_lookup_without_street_match_keeps_only_very_close_buildings(client, no_network, monkeypatch):
+def test_lookup_without_street_match_returns_nearby_candidates(client, no_network, monkeypatch):
     place = {**FIVE_POINTZ[0], "address": {"road": "Some Other Road"}}
     monkeypatch.setattr(no_network.requests, "get", lambda *a, **k: FakeResponse([place]))
-    res = client.get("/buildings/lookup", params={"q": "Somewhere"}).json()["results"]
-    assert [r["bid"] for r in res] == [5]  # 48 m: within 60 m; Jackson at 89 m is not
+    body = client.get("/buildings/lookup", params={"q": "Somewhere"}).json()
+    res = body["results"]
+    # no street to check: both buildings within 100 m come back, nearest first, labelled as unconfirmed
+    assert [r["bid"] for r in res] == [5, 4] and {r["match"] for r in res} == {"nearby"}
+    assert "cannot tell which one" in body["reason"]
 
 
 DAKOTA = {"osm_type": "way", "osm_id": 1, "lat": "40.7764", "lon": "-73.9762", "name": "The Dakota",
@@ -190,7 +193,8 @@ def test_lookup_house_number_picks_that_address_over_a_closer_neighbour(client, 
     monkeypatch.setattr(no_network.requests, "get", lambda *a, **k: FakeResponse([EUGENE]))
     body = client.get("/buildings/lookup", params={"q": "The Eugene"}).json()
     assert [r["bid"] for r in body["results"]] == [7]
-    assert body["results"][0]["address"] == "435 WEST 31 STREET" and "same address" in body["reason"]
+    assert body["results"][0]["address"] == "435 WEST 31 STREET" and body["results"][0]["match"] == "same address"
+    assert "same address" in body["reason"]
 
 
 @pytest.mark.parametrize("error", [requests.Timeout("slow"), requests.ConnectionError("down"), ValueError("bad json")])
@@ -265,4 +269,10 @@ def test_lookup_unknown_street_spelling_falls_back_to_nearby(client, no_network,
     place = {**DAKOTA, "lat": "40.77670", "lon": "-73.97690", "address": {"house_number": "12", "road": "W Seventy-Second St"}}
     monkeypatch.setattr(no_network.requests, "get", lambda *a, **k: FakeResponse([place]))
     res = client.get("/buildings/lookup", params={"q": "Somewhere on 72nd"}).json()["results"]
-    assert [r["bid"] for r in res] == [6]  # 12 West 72nd, within 60 m of the point
+    assert [r["bid"] for r in res] == [6] and res[0]["match"] == "nearby"  # 12 West 72nd, next to the point
+
+
+def test_predict_accepts_borough_in_any_case(client):
+    for b in ["bronx", "Bronx", " staten  island "]:
+        assert client.post("/predict", json={"borough": b, "units": 20}).status_code == 200
+    assert client.post("/predict", json={"borough": "Paris"}).status_code == 422
