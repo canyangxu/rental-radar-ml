@@ -9,7 +9,10 @@ Only 3,867 of our 162,997 buildings have a name. When /buildings/search finds no
        "not found", never the building next door;
      - without a house number, a building must be close to the OSM point AND on the same street (the nearest
        building alone is often the wrong one: next door, around the corner);
-  3. returns at most 3 of our buildings, each with where the match came from.
+     - with neither (OSM gives no road, or one HPD does not use there), the buildings within 100 m are returned as
+       "nearby" candidates for the user to confirm, never as a confirmed match;
+  3. returns at most 3 of our buildings, each with where the match came from and how strong it is
+     (`match`: "same address", "same street" or "nearby").
 
 Nominatim usage policy: an identifying User-Agent and at most 1 request per second. Answers are cached in memory,
 so the same name never calls Nominatim twice while the server runs.
@@ -31,7 +34,7 @@ NYC_VIEWBOX = "-74.26,40.92,-73.68,40.49"  # left, top, right, bottom
 TIMEOUT_S = 6
 SOURCE = "OpenStreetMap (Nominatim)"
 STREET_RADIUS_M = 200  # same street: allow a big lot (5Pointz's building entrance is 89 m from its OSM point)
-NEAR_RADIUS_M = 60     # no street match: only something right at the point
+NEAR_RADIUS_M = 100    # no street or address match: nearby candidates only, labelled "nearby" for the user to confirm
 ADDRESS_RADIUS_M = 1000  # exact address: same number and street, and within 1 km (the street may exist in two boroughs)
 MAX_RESULTS = 3
 
@@ -177,12 +180,14 @@ def lookup(q: str, buildings: pd.DataFrame, norm: Callable[[str], str]) -> dict:
         results = [{"bid": int(r.bid), "name": r.name if isinstance(r.name, str) else None, "address": r.address,
                     "borough": r.borough, "zip": None if pd.isna(r.zip) else str(r.zip),
                     "units": None if pd.isna(r.units) else float(r.units), "distance_m": round(float(r.distance_m)),
-                    "source": SOURCE, "source_url": r.source_url, "matched_name": r.matched_name}
+                    "source": SOURCE, "source_url": r.source_url, "matched_name": r.matched_name,
+                    "match": "same address" if r.exact_address else "same street" if r.street_match else "nearby"}
                    for r in hits.itertuples(index=False)]
         top = hits.iloc[0]
         where = (f"at {top['address'].title()}, the same address as this HPD building" if top["exact_address"] else
                  f"on {street_of(top['_addr']).title()}, next to these HPD buildings" if top["street_match"] else
-                 f"within {NEAR_RADIUS_M} m of these HPD buildings")
+                 f"within {NEAR_RADIUS_M} m of these HPD buildings, but not on a street we could match, so we cannot "
+                 "tell which one it is. Check the address")
         answer = {"results": results, "reason": f"OpenStreetMap places “{top['matched_name']}” {where}."}
     _CACHE[key] = answer  # cache real answers (including "not found"), never network failures
     return {**answer, "query": q}

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Count = Field(default=0, ge=0, le=1_000_000)
 
@@ -37,6 +37,12 @@ class BuildingFeatures(BaseModel):
     v3_a: int = Count; v3_b: int = Count; v3_c: int = Count; v3_ri: int = Count
     # bedbug filings, past 24 months
     bb24_infested: int = Count; bb24_reinfested: int = Count
+
+    @field_validator("borough", mode="before")
+    @classmethod
+    def _borough_upper(cls, v):
+        """Accept any case and extra spaces: 'bronx', ' Staten  Island ' -> 'BRONX', 'STATEN ISLAND'."""
+        return " ".join(v.split()).upper() if isinstance(v, str) else v
 
 
 class BatchRequest(BaseModel):
